@@ -1,0 +1,141 @@
+{
+  "port": 48732,
+  "idleExitSec": 90,
+  "activeHost": "YOUR_HOST_ID",
+  "sshOpts": [
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=8",
+    "-o",
+    "ServerAliveInterval=15",
+    "-o",
+    "ServerAliveCountMax=3"
+  ],
+  "hosts": [
+    {
+      "id": "YOUR_HOST_ID",
+      "label": "YOUR_HOST_ALIAS",
+      "sub": "YOUR_SERVER_IP · Your GPU Model · your-ssh-user",
+      "sshHost": "YOUR_HOST_ALIAS",
+      "intervalSec": 3,
+      "historyEverySamples": 3,
+      "services": [
+        {
+          "id": "demo-inference",
+          "kind": "systemd",
+          "unit": "demo-inference",
+          "label": "demo inference",
+          "desc": "Heavy VRAM consumer, may squeeze training jobs",
+          "warnIfActive": true,
+          "allowEnable": false,
+          "confirmStop": "Stopping frees GPU memory immediately; in-flight inference requests will drop."
+        },
+        {
+          "id": "demo-worker",
+          "kind": "pattern",
+          "pattern": "your-service-pattern",
+          "label": "demo worker service",
+          "desc": "Lightweight web session service, no GPU use",
+          "startCmd": "mkdir -p /opt/demo-app/logs && cd /opt/demo-app && setsid nohup venv/bin/your-service-pattern >> logs/worker.log 2>&1 < /dev/null & sleep 2; pgrep -f 'your-service-pattern' >/dev/null && echo 'OK: worker started' || echo 'FAIL: start failed, check log'",
+          "stopCmd": "pkill -f 'your-service-pattern'; sleep 1; pgrep -f 'your-service-pattern' >/dev/null && echo 'WARN: still running' || echo 'OK: worker stopped'",
+          "logCmd": "tail -n 120 /opt/demo-app/logs/worker.log 2>/dev/null || echo '(no log yet)'"
+        }
+      ]
+    },
+    {
+      "id": "second",
+      "label": "example-host",
+      "sub": "YOUR_SERVER_IP · 备用机（未启用可删）",
+      "enabled": false,
+      "sshHost": "example-host",
+      "intervalSec": 5,
+      "historyEverySamples": 3,
+      "services": []
+    }
+  ],
+  "denyKill": {
+    "pids": [
+      1,
+      2
+    ],
+    "userMatch": [
+      "root"
+    ],
+    "cmdMatch": [
+      "sshd",
+      "systemd-journald",
+      "systemd-logind",
+      "nvidia-persistenced",
+      "your-service-pattern",
+      "dockerd",
+      "containerd"
+    ]
+  },
+  "alerts": [
+    {
+      "id": "gpu-mem",
+      "metric": "gpu.memPct",
+      "op": ">",
+      "threshold": 90,
+      "forSec": 15,
+      "cooldownSec": 900,
+      "level": "warn",
+      "text": "显存占用 {value}%，新任务可能挤爆"
+    },
+    {
+      "id": "gpu-temp",
+      "metric": "gpu.tempC",
+      "op": ">",
+      "threshold": 85,
+      "forSec": 30,
+      "cooldownSec": 600,
+      "level": "bad",
+      "text": "GPU 温度 {value}°C，检查风扇/机箱"
+    },
+    {
+      "id": "disk",
+      "metric": "disk.maxPct",
+      "op": ">",
+      "threshold": 88,
+      "forSec": 60,
+      "cooldownSec": 3600,
+      "level": "bad",
+      "text": "磁盘使用率 {value}%，该清理了"
+    },
+    {
+      "id": "mem",
+      "metric": "mem.pct",
+      "op": ">",
+      "threshold": 92,
+      "forSec": 30,
+      "cooldownSec": 900,
+      "level": "warn",
+      "text": "内存使用率 {value}%"
+    },
+    {
+      "id": "load",
+      "metric": "cpu.loadPerCore",
+      "op": ">",
+      "threshold": 2,
+      "forSec": 120,
+      "cooldownSec": 900,
+      "level": "warn",
+      "text": "负载 {value}/核，机器很忙"
+    },
+    {
+      "id": "agent",
+      "metric": "agent.ageSec",
+      "op": ">",
+      "threshold": 20,
+      "forSec": 0,
+      "cooldownSec": 300,
+      "level": "bad",
+      "text": "采集已中断 {value}s（SSH 可能断了）"
+    }
+  ],
+  "history": {
+    "keepDays": 7,
+    "maxFileMB": 64
+  }
+}

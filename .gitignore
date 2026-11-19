@@ -1,0 +1,17 @@
+# 运行时数据与日志（不入库）
+/log/
+/state/
+/history/
+alerts.log
+actions.log
+
+# 原子写临时文件
+*.tmp*
+
+# 系统杂项
+Thumbs.db
+Desktop.ini
+
+# 会话工作区与配置备份（Save-Config 生成，不入库）
+.workbuddy/
+config.json.bak

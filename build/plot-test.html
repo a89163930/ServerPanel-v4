@@ -1,0 +1,45 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../vendor/uplot.min.css">
+<script src="../vendor/uplot.iife.min.js"></script></head>
+<body><div id="out">running</div><div id="c1"></div><div id="c2"></div>
+<script>
+const R = [];
+function t(name, fn) { try { fn(); R.push('OK   ' + name); } catch (e) { R.push('THROW ' + name + ' :: ' + e.message); } }
+const xs = [Date.now() - 60000, Date.now() - 30000, Date.now()];
+// 1) 当前 app.js 里用的写法：values: u => u.map(...)
+t('axes.values = u => u.map(...)  (app.js 现状)', () => {
+  new uPlot({ width: 600, height: 200,
+    axes: [{ values: u => u.map(x => String(x)) }, { values: u => u.map(v => String(v)) }],
+    series: [{}, { label: 'a', data: [1, 2, 3] }]
+  }, [xs, [1, 2, 3]]);
+});
+// 2) 官方签名 (self, ticks) => ...
+t('axes.values = (u, ticks) => ticks.map(...)', () => {
+  new uPlot({ width: 600, height: 200,
+    axes: [{ values: (u, ticks) => ticks.map(String) }, { values: (u, ticks) => ticks.map(String) }],
+    series: [{}, { label: 'a', data: [1, 2, 3] }]
+  }, [xs, [1, 2, 3]]);
+});
+// 3) 带 fill 颜色 8 位十六进制 + cursor.points 配置
+t('完整配置(含 fill/#6d8dff22, scales.time)', () => {
+  new uPlot({ width: 600, height: 200, pxAlign: false,
+    cursor: { points: { show: true, size: 9, width: 2 }, one: false, drag: { x: false, set: false, y: false } },
+    legend: { show: false }, scales: { x: { time: true }, y: { range: [0, 100], auto: false } },
+    axes: [{ stroke: '#8fa0bf' }, { stroke: '#8fa0bf', size: 46 }],
+    series: [{ label: '时间' }, { label: 'CPU %', stroke: '#6d8dff', width: 1.6, fill: '#6d8dff22' }],
+    hooks: {}
+  }, [xs, [10, 20, 30]]);
+});
+// 4) series 里只给 label 不给 data，再 setData
+t('mkChart 空数据初始化 [[],[]]', () => {
+  const u = new uPlot({ width: 600, height: 200, series: [{ label: '时间' }, { label: 'CPU', stroke: '#6d8dff' }] }, [[], []]);
+  u.setData([xs, [1, 2, 3]]);
+});
+// 5) null 值序列
+t('setData 含 null 空洞', () => {
+  const u = new uPlot({ width: 600, height: 200, series: [{ label: 't' }, { label: 'a', stroke: '#f00' }] }, [[], []]);
+  u.setData([xs, [null, 2, null]]);
+});
+document.title = 'done';
+document.getElementById('out').textContent = R.join(' ||| ');
+</script></body></html>

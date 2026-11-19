@@ -1,0 +1,9 @@
+# bash 脚本一律 LF（远端 Linux 执行；agent 侧虽已归一化，这里再保险）
+*.sh text eol=lf
+# PowerShell / 前端源码保持自动
+*.ps1 text
+*.js text
+*.html text
+*.css text
+*.json text
+*.md text

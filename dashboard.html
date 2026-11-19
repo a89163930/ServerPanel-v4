@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>服务器管家 v4</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='10' y='10' width='80' height='80' rx='20' fill='%236D8DFF'/><rect x='30' y='46' width='40' height='8' rx='4' fill='%230B0E14'/><rect x='30' y='62' width='26' height='8' rx='4' fill='%230B0E14'/></svg>">
+<link rel="stylesheet" href="/vendor/uplot.min.css">
+<style>
+/* ============ DR-01 色彩 token ============ */
+:root{
+  --bg-base:#0B0E14; --bg-sunken:#070910; --bg-surface:#151A24; --bg-raised:#1B2230;
+  --border-subtle:#222A38; --border-strong:#2E3849;
+  --text-primary:#E4E9F2; --text-secondary:#98A4B8; --text-tertiary:#6B7789;
+  --accent:#6D8DFF; --accent-soft:rgba(109,141,255,.14);
+  --ok:#35C88A; --warn:#E8A33D; --bad:#E5484D; --info:#4CC3D9;
+  --r-sm:6px; --r-md:10px; --r-pill:999px;
+  --font:"Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+  --mono:ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px}
+body{background:var(--bg-base);color:var(--text-primary);font-family:var(--font);font-size:13px;line-height:20px;min-height:100vh}
+.num,td,th,.v,.bar-pct{font-variant-numeric:tabular-nums}
+svg.ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px;flex-shrink:0}
+.wrap{padding:0 24px 40px}
+/* ============ 字阶 DR-02 ============ */
+.t-display{font-size:28px;line-height:32px;font-weight:600}
+.t-title{font-size:18px;line-height:26px;font-weight:600}
+.t-section{font-size:14px;line-height:20px;font-weight:600}
+.t-label{font-size:12px;line-height:16px;font-weight:500;color:var(--text-secondary)}
+.t-caption{font-size:11px;line-height:16px;color:var(--text-secondary)}
+.mut{color:var(--text-tertiary)}
+/* ============ 头部 DR-22 ============ */
+header{display:flex;align-items:center;gap:16px;padding:16px 24px 12px;flex-wrap:wrap}
+.logo{width:36px;height:36px;border-radius:var(--r-md);background:var(--accent-soft);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;color:var(--accent)}
+.h-title{font-size:18px;font-weight:600}
+.h-sub{color:var(--text-secondary);font-size:12px;margin-top:2px}
+.spacer{flex:1}
+.h-right{display:flex;align-items:center;gap:12px;margin-left:auto}
+.chip{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r-pill);padding:5px 14px;font-size:12px;color:var(--text-secondary);display:inline-flex;gap:8px;align-items:center}
+.chip.click{cursor:pointer}
+.chip.click:hover{border-color:var(--border-strong);color:var(--text-primary)}
+select{background:var(--bg-raised);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:var(--r-pill);padding:5px 12px;font:inherit;font-size:12px;cursor:pointer}
+.host-tag{display:inline-flex;align-items:center;gap:8px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r-pill);padding:5px 14px;font-size:12px}
+/* 状态点/形状 DR-01 双编码 */
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.st .sh{width:8px;height:8px;flex-shrink:0}
+.st.ok{color:var(--ok)} .st.ok .sh{border-radius:50%;background:var(--ok)}
+.st.warn{color:var(--warn)} .st.warn .sh{background:var(--warn);clip-path:polygon(50% 0,100% 100%,0 100%)}
+.st.bad{color:var(--bad)} .st.bad .sh{background:var(--bad)}
+.st.info{color:var(--info)} .st.info .sh{border-radius:50%;background:var(--info)}
+.st.idle{color:var(--text-tertiary)} .st.idle .sh{border-radius:50%;background:var(--text-tertiary)}
+/* DR-13 状态横幅 */
+#banner{display:none;margin:0 24px 12px;padding:10px 16px;border-radius:var(--r-md);border:1px solid var(--border-subtle);background:var(--bg-surface);align-items:center;gap:12px;font-size:13px}
+#banner.on{display:flex}
+#banner.warn{border-color:var(--warn);background:rgba(232,163,61,.08)}
+#banner.bad{border-color:var(--bad);background:rgba(229,72,77,.08)}
+#banner .act{margin-left:auto}
+/* ============ 导航 DR-23 ============ */
+nav{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap}
+nav button{background:none;border:none;color:var(--text-secondary);font:inherit;font-size:14px;padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;display:inline-flex;gap:8px;align-items:center}
+nav button:hover{color:var(--text-primary)}
+nav button.on{color:var(--text-primary);border-bottom-color:var(--accent);font-weight:600}
+nav button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:var(--r-sm)}
+main{padding:20px 0 0}
+section.tab{display:none}
+section.tab.on{display:block}
+/* ============ 卡片 DR-09 ============ */
+.card{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:16px;position:relative}
+.card .c-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.card .c-head .t-label{display:inline-flex;gap:6px;align-items:center}
+.card .c-st{margin-left:auto}
+.card .v{font-size:28px;line-height:32px;font-weight:600}
+.card .v small{font-size:12px;line-height:16px;color:var(--text-secondary);font-weight:500;margin-left:4px}
+.card .v .unk{font-size:16px;color:var(--warn);font-weight:500}
+.card .d{color:var(--text-secondary);font-size:11px;line-height:16px;margin-top:6px;min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:6px;background:var(--bg-sunken);border-radius:var(--r-pill);margin-top:10px;overflow:hidden;position:relative}
+.bar i{display:block;height:100%;width:0;border-radius:var(--r-pill);background:var(--accent);transition:width .5s}
+.bar i.warn{background:var(--warn)} .bar i.bad{background:var(--bad)}
+.bar i.unk{background:repeating-linear-gradient(45deg,var(--border-subtle),var(--border-subtle) 6px,var(--bg-surface) 6px,var(--bg-surface) 12px)}
+.bar .tick{position:absolute;top:0;bottom:0;width:1px;background:var(--text-tertiary);opacity:.6}
+/* 骨架 DR-12 */
+.skel .v,.skel .d{color:transparent!important}
+.skel .v,.skel .d,.skel .bar{position:relative;overflow:hidden;background:var(--bg-raised);border-radius:var(--r-sm)}
+.skel .v{min-height:32px}.skel .d{min-height:16px}
+.skel .v::after,.skel .d::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(228,233,242,.06),transparent);animation:sh 1.2s infinite}
+@keyframes sh{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.upd{position:absolute;top:12px;right:12px;width:6px;height:6px;border-radius:50%;background:var(--accent);opacity:0;transition:opacity .3s}
+.card.refreshing .upd{opacity:.8}
+/* 陈旧 DR-13 */
+.card.stale{opacity:.75}
+/* ============ 总览 DR-04 ============ */
+.gpu-main{display:flex;gap:24px;align-items:stretch;margin-bottom:16px}
+.gpu-main .g-left{flex:1;min-width:0}
+.gpu-main .g-name{font-size:14px;font-weight:600;display:flex;gap:8px;align-items:center}
+.gpu-main .g-metrics{display:flex;gap:32px;margin-top:12px;flex-wrap:wrap}
+.gpu-main .gm .t-label{display:block}
+.gpu-main .gm .n{font-size:24px;font-weight:600}
+.gpu-main .gm .n small{font-size:12px;color:var(--text-secondary);font-weight:500}
+.gpu-main .g-spark{width:280px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;gap:8px}
+.gpu-main .g-verdict{margin-top:12px;padding:10px 14px;border-radius:var(--r-sm);background:var(--bg-sunken);border:1px solid var(--border-subtle);font-size:13px;display:flex;gap:8px;align-items:center}
+.aux-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}
+.conclusion{margin-bottom:16px}
+.conclusion .c-line{font-size:15px;font-weight:600;display:flex;gap:8px;align-items:center}
+.conclusion .c-points{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.conclusion .pt{display:flex;gap:8px;align-items:center;font-size:13px}
+.conclusion .pt .go{margin-left:auto}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch;margin-bottom:16px}
+.row2 .card{display:flex;flex-direction:column}
+.row2 .list{flex:1}
+.panel-h{font-size:14px;font-weight:600;display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.panel-h .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+/* 键值/列表 */
+.kv{display:flex;justify-content:space-between;gap:12px;padding:7px 2px;border-bottom:1px solid var(--border-subtle);font-size:13px}
+.kv:last-child{border-bottom:none}
+.kv b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kv span:last-child{color:var(--text-secondary);flex-shrink:0}
+/* 空态 DR-11 */
+.empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:24px 12px;color:var(--text-tertiary);text-align:center}
+.empty svg.ic{width:24px;height:24px;opacity:.7}
+.empty .e-t{font-size:13px;color:var(--text-secondary)}
+.empty .e-d{font-size:11px}
+/* 挂载 DR-08 */
+.mount-row{display:grid;grid-template-columns:minmax(140px,1.2fr) 2fr 90px;gap:16px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--border-subtle)}
+.mount-row:last-child{border-bottom:none}
+.mount-row .mp{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mount-row .mp small{display:block;color:var(--text-tertiary);font-weight:400;font-size:11px}
+.mount-row .bar{margin-top:0}
+.mount-row .pct{text-align:right;font-weight:600}
+/* ============ 表格 ============ */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{color:var(--text-secondary);text-align:left;font-weight:500;padding:6px 8px;border-bottom:1px solid var(--border-subtle);cursor:pointer;user-select:none;white-space:nowrap}
+th.sorted{color:var(--accent)}
+td{padding:6px 8px;border-bottom:1px solid var(--border-subtle);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:560px}
+tr:hover td{background:var(--bg-raised)}
+.cmd{color:var(--text-secondary)}
+.cmd .base{color:var(--text-primary)}
+/* DR-06 操作按需显露 */
+.ops{width:96px;text-align:right}
+.ops .mini{visibility:hidden}
+tr:hover .ops .mini,tr.sel .ops .mini{visibility:visible}
+/* ============ 按钮/徽章 ============ */
+button.act,button.mini{background:var(--bg-raised);border:1px solid var(--border-subtle);color:var(--text-primary);border-radius:var(--r-sm);padding:8px 16px;font:inherit;font-size:13px;cursor:pointer;transition:.15s;display:inline-flex;gap:6px;align-items:center}
+button.mini{padding:3px 10px;font-size:12px}
+button.act:hover,button.mini:hover{border-color:var(--accent)}
+button.danger{color:var(--bad)}
+button.danger:hover{border-color:var(--bad)}
+button.danger.solid{background:var(--bad);border-color:var(--bad);color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.seg{background:var(--bg-sunken);border:1px solid var(--border-subtle);color:var(--text-secondary);border-radius:var(--r-sm);padding:4px 12px;font-size:12px;cursor:pointer}
+button.seg.on{background:var(--accent-soft);color:var(--text-primary);border-color:var(--accent)}
+button.iconbtn{background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:4px;border-radius:var(--r-sm);display:inline-flex}
+button.iconbtn:hover{color:var(--text-primary);background:var(--bg-raised)}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:var(--r-pill);padding:2px 10px;font-size:12px;background:var(--bg-raised);color:var(--text-secondary);border:1px solid var(--border-subtle)}
+.pill.ok{color:var(--ok);border-color:rgba(53,200,138,.4)}
+.pill.warn{color:var(--warn);border-color:rgba(232,163,61,.4)}
+.pill.bad{color:var(--bad);border-color:rgba(229,72,77,.4)}
+.pill.info{color:var(--info);border-color:rgba(76,195,217,.4)}
+/* ============ 图表 ============ */
+.chartbox{background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:8px 10px;position:relative}
+.chartbox .ch{width:100%}
+.uplot{font-family:var(--font);font-size:11px}
+.uplot .u-axis{font-family:var(--mono)}
+.legend{display:flex;gap:8px;font-size:12px;color:var(--text-secondary);margin:8px 4px;flex-wrap:wrap;align-items:center}
+.legend button.lg{display:inline-flex;align-items:center;gap:6px;background:var(--bg-sunken);border:1px solid var(--border-subtle);color:var(--text-primary);border-radius:var(--r-pill);padding:3px 12px;font:inherit;font-size:12px;cursor:pointer}
+.legend button.lg i{width:9px;height:9px;border-radius:3px;flex-shrink:0}
+.legend button.lg.off{opacity:.5;border-style:dashed}
+.legend button.lg.off i{background:var(--text-tertiary)!important}
+.legend button.lg.off .lb{text-decoration:line-through;color:var(--text-tertiary)}
+/* 取证抽屉 DR-19 */
+#forensic{display:none;margin-top:12px}
+#forensic.on{display:block}
+#forensic .f-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+#forensic .f-body{background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:var(--r-sm);padding:12px 14px;font-size:12.5px;line-height:20px;color:var(--text-secondary);white-space:pre-wrap}
+/* ============ 输入/输出 ============ */
+.inp{background:var(--bg-sunken);border:1px solid var(--border-subtle);color:var(--text-primary);border-radius:var(--r-sm);padding:8px 12px;font:inherit;font-size:13px;min-width:230px}
+.inp:focus{outline:none;border-color:var(--accent)}
+.out{white-space:pre-wrap;font-family:var(--mono);font-size:12.5px;background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:12px 14px;min-height:60px;max-height:340px;overflow:auto;color:var(--text-secondary)}
+.pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;font-size:12px;color:var(--text-secondary);margin-top:10px}
+/* 服务 */
+.svc{display:flex;align-items:center;gap:14px;padding:12px 2px;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap}
+.svc:last-child{border-bottom:none}
+.svc .nm{font-size:14px;font-weight:600;min-width:200px;display:inline-flex;gap:8px;align-items:center}
+.svc .desc{color:var(--text-secondary);font-size:12px;flex:1;min-width:180px}
+/* 健康 DR-15 */
+.health-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.health-grid .hb{background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:var(--r-sm);padding:12px}
+.health-grid .hb .n{font-size:20px;font-weight:600;margin-top:4px}
+.health-grid .hb .sub{font-size:11px;color:var(--text-tertiary);margin-top:3px;line-height:1.35;word-break:break-all}
+/* 审计/告警结构化行 DR-15 */
+.arow{display:grid;grid-template-columns:150px 90px 1fr 110px 90px;gap:12px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--border-subtle);font-size:12.5px}
+.arow .tm{font-family:var(--mono);color:var(--text-secondary)}
+.arow .x{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arow details{grid-column:1/-1}
+.arow summary{cursor:pointer;color:var(--text-tertiary);font-size:11px}
+.arow pre{background:var(--bg-sunken);border-radius:var(--r-sm);padding:8px;font-size:11px;overflow:auto;max-height:160px}
+/* ============ 弹窗/Toast ============ */
+.mwrap{position:fixed;inset:0;background:rgba(7,9,16,.7);display:none;align-items:center;justify-content:center;z-index:50}
+.mwrap.on{display:flex}
+.mbox{width:min(560px,92vw);background:var(--bg-raised);border:1px solid var(--border-strong);border-radius:var(--r-md);padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.mtitle{font-size:16px;font-weight:600;margin-bottom:10px}
+.mbody{font-size:13px;line-height:20px;color:var(--text-secondary);white-space:pre-wrap;word-break:break-all;max-height:280px;overflow:auto}
+.mbtns{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+#toasts{position:fixed;bottom:24px;right:24px;display:flex;flex-direction:column;gap:8px;z-index:60;max-width:360px}
+.toast{background:var(--bg-raised);border:1px solid var(--border-strong);border-radius:var(--r-md);padding:10px 14px;font-size:13px;display:flex;gap:10px;align-items:center;box-shadow:0 8px 30px rgba(0,0,0,.5);animation:tin .25s}
+.toast.bad{border-color:var(--bad)} .toast.ok{border-color:var(--ok)}
+.toast .tx{flex:1}
+@keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+/* ============ 主机管理 ============ */
+#hostBox{display:inline-flex;align-items:center;gap:8px}
+.hdot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.hdot.ok{background:var(--ok)} .hdot.warn{background:var(--warn)} .hdot.bad{background:var(--bad)} .hdot.n{background:var(--text-tertiary)}
+.mbox.wide{width:min(760px,94vw);max-height:88vh;overflow:auto}
+.hlist{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+.hrow{display:flex;align-items:center;gap:12px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--r-sm);padding:10px 14px}
+.hrow .hi{flex:1;min-width:0}
+.hrow .hl{font-size:13px;font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hrow .hs{font-size:11px;color:var(--text-tertiary);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hrow .hops{display:flex;gap:6px;flex:none}
+.hform{border-top:1px solid var(--border-subtle);padding-top:14px;margin-top:6px}
+.hf-title{font-size:14px;font-weight:600;margin-bottom:10px}
+.hf-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hf-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-secondary)}
+.hf-grid input{background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:var(--r-sm);color:var(--text-primary);padding:7px 10px;font:inherit;font-size:13px}
+.hf-grid input:focus{outline:none;border-color:var(--accent)}
+.hf-actions{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.hf-en{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--text-secondary);margin-left:auto}
+.hf-out{background:var(--bg-sunken);border-radius:var(--r-sm);padding:10px;font-size:12px;margin-top:10px;white-space:pre-wrap;word-break:break-all;max-height:140px;overflow:auto}
+.hf-err{color:var(--bad);font-size:12px;margin-top:8px;min-height:16px}
+.hhelp{margin-top:14px;font-size:12px;color:var(--text-secondary)}
+.hhelp summary{cursor:pointer}
+.hhelp pre{background:var(--bg-sunken);border-radius:var(--r-sm);padding:10px;margin-top:8px;font-size:11px;overflow:auto}
+button.act.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+/* ============ 响应式 DR-24 ============ */
+@media(max-width:1200px){.aux-grid{grid-template-columns:repeat(2,1fr)}.gpu-main .g-spark{width:200px}}
+@media(max-width:900px){.aux-grid{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}.gpu-main{flex-direction:column}.gpu-main .g-spark{width:100%}.health-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){.aux-grid{grid-template-columns:1fr}.ops .mini{visibility:visible}.arow{grid-template-columns:1fr 1fr}.wrap{padding:0 12px 32px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo" data-icon="server"></div>
+  <div>
+    <div class="h-title">服务器管家 <span class="mut" style="font-weight:400;font-size:14px">v4.1</span></div>
+    <div class="h-sub" id="hdrSub">启动中…</div>
+  </div>
+  <div class="h-right">
+    <span id="hostBox"></span>
+    <span class="chip"><span class="st ok" id="liveDot"><span class="sh"></span></span><span id="lastSync">连接中…</span></span>
+    <span class="chip click" id="alertChip" title="查看告警与审计"><span data-icon="bell"></span><span id="alertChipTx">规则 0 条 · 触发 0</span></span>
+  </div>
+</header>
+<div id="banner" role="status" aria-live="polite"><span id="bannerIcon"></span><span id="bannerTx"></span><span class="act"><button class="mini" id="bannerRetry">重试</button></span></div>
+<nav id="nav" role="tablist" aria-label="页面导航">
+  <button data-t="ov" class="on" role="tab" aria-selected="true"><span data-icon="grid"></span>总览</button>
+  <button data-t="perf" role="tab" aria-selected="false"><span data-icon="chart"></span>性能曲线</button>
+  <button data-t="proc" role="tab" aria-selected="false"><span data-icon="list"></span>进程</button>
+  <button data-t="net" role="tab" aria-selected="false"><span data-icon="globe"></span>网络</button>
+  <button data-t="svc" role="tab" aria-selected="false"><span data-icon="sliders"></span>服务与开关</button>
+  <button data-t="alarm" role="tab" aria-selected="false"><span data-icon="bell"></span>告警与审计</button>
+</nav>
+<div class="wrap">
+<main>
+
+<section class="tab on" id="t-ov" role="tabpanel">
+  <div class="card gpu-main skel" id="gpuMain">
+    <div class="g-left">
+      <div class="g-name"><span data-icon="gpu"></span><span id="gpuName">GPU</span><span class="c-st" id="gpuSt"></span></div>
+      <div class="g-metrics">
+        <div class="gm"><span class="t-label">利用率</span><span class="n num" id="gUtil">—</span></div>
+        <div class="gm"><span class="t-label">显存</span><span class="n num" id="gMem">—</span></div>
+        <div class="gm"><span class="t-label">温度</span><span class="n num" id="gTemp">—</span></div>
+        <div class="gm"><span class="t-label">功耗</span><span class="n num" id="gPow">—</span></div>
+      </div>
+      <div class="g-verdict" id="gpuVerdict">—</div>
+    </div>
+    <div class="g-spark"><span class="t-label">近 15 分钟 GPU 利用率</span><div id="spark" style="height:60px"></div></div>
+  </div>
+  <div class="aux-grid">
+    <div class="card skel" id="c-cpu"><span class="upd"></span><div class="c-head"><span class="t-label"><span data-icon="cpu"></span>CPU</span><span class="c-st" id="cpuSt"></span></div><div class="v num" id="cpuV">—</div><div class="d" id="cpuD"></div><div class="bar"><i id="cpuB"></i></div></div>
+    <div class="card skel" id="c-mem"><span class="upd"></span><div class="c-head"><span class="t-label"><span data-icon="ram"></span>内存</span><span class="c-st" id="memSt"></span></div><div class="v num" id="memV">—</div><div class="d" id="memD"></div><div class="bar"><i id="memB"></i></div></div>
+    <div class="card skel" id="c-disk"><span class="upd"></span><div class="c-head"><span class="t-label"><span data-icon="disk"></span>磁盘</span><span class="c-st" id="diskSt"></span></div><div class="v num" id="diskV">—</div><div class="d" id="diskD"></div><div class="bar"><i id="diskB"></i></div></div>
+    <div class="card skel" id="c-net"><span class="upd"></span><div class="c-head"><span class="t-label"><span data-icon="globe"></span>网络</span><span class="c-st" id="netSt"></span></div><div class="v num" id="netV">—</div><div class="d" id="netD"></div></div>
+  </div>
+  <div class="card conclusion" id="conclCard">
+    <div class="c-line" id="verdict">采集中…</div>
+    <div class="c-points" id="verdictPts"></div>
+  </div>
+  <div class="row2">
+    <div class="card"><div class="panel-h"><span data-icon="gpu"></span>占显存的进程<span class="r mut" id="gpuProcMeta"></span></div><div class="list" id="gpuProcs"></div></div>
+    <div class="card"><div class="panel-h"><span data-icon="cpu"></span>CPU 占用 Top 8<span class="r mut" id="topMeta"></span></div><div class="list" id="topProcs"></div></div>
+  </div>
+  <div class="card"><div class="panel-h"><span data-icon="disk"></span>挂载点（按占用降序）</div><div id="diskList"></div></div>
+</section>
+
+<section class="tab" id="t-perf" role="tabpanel">
+  <div class="card">
+    <div class="panel-h"><span data-icon="chart"></span>实时 &amp; 历史
+      <span class="r">
+        <button class="seg on" data-w="15m">15分</button><button class="seg" data-w="1h">1小时</button><button class="seg" data-w="6h">6小时</button><button class="seg" data-w="24h">24小时</button><button class="seg" data-w="7d">7天</button>
+        <span class="mut" id="histMeta"></span>
+      </span>
+    </div>
+    <div class="legend" id="legendMain"></div>
+    <div class="chartbox"><div class="ch" id="chMain"></div></div>
+    <div style="height:16px"></div>
+    <div class="legend" id="legendNet"></div>
+    <div class="chartbox"><div class="ch" id="chNet"></div></div>
+    <div id="forensic">
+      <div class="f-head"><span class="t-section" data-icon="search">取证</span><button class="iconbtn" id="forensicClose" aria-label="关闭取证"><span data-icon="x"></span></button></div>
+      <div class="f-body" id="forensicBody"></div>
+    </div>
+  </div>
+</section>
+
+<section class="tab" id="t-proc" role="tabpanel">
+  <div class="card">
+    <div class="panel-h"><span data-icon="list"></span>进程<span class="r"><input class="inp" id="pFilter" placeholder="过滤 命令 / 用户 / PID" aria-label="过滤进程"><button class="seg" id="fullPathToggle">完整路径</button><span class="mut" id="pMeta"></span></span></div>
+    <div style="overflow:auto;max-height:64vh">
+      <table id="pTable"><thead><tr>
+        <th data-k="pid">PID</th><th data-k="user">用户</th><th data-k="pcpu">CPU%</th><th data-k="pmem">内存%</th>
+        <th data-k="etimes">运行时长</th><th data-k="cmd">命令</th><th class="ops">操作</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <div class="pager"><span id="pgInfo"></span><button class="mini" data-pg="prev">上一页</button><button class="mini" data-pg="next">下一页</button></div>
+    <div class="mut" style="margin-top:8px">保护名单内的进程（sshd / systemd / GPU 驱动 / 面板自身服务 / root 进程）会被拒绝并说明原因。操作按钮悬停行时显示。</div>
+  </div>
+</section>
+
+<section class="tab" id="t-net" role="tabpanel">
+  <div class="row2">
+    <div class="card"><div class="panel-h"><span data-icon="plug"></span>监听端口<span class="r mut" id="portMeta"></span></div><div class="list" id="portList" style="max-height:60vh;overflow:auto"></div></div>
+    <div class="card"><div class="panel-h"><span data-icon="link"></span>已建立的外部连接<span class="r mut" id="connMeta"></span></div><div class="list" id="connList" style="max-height:60vh;overflow:auto"></div></div>
+  </div>
+  <div class="card"><div class="panel-h"><span data-icon="user"></span>当前登录会话</div><div id="userList"></div></div>
+</section>
+
+<section class="tab" id="t-svc" role="tabpanel">
+  <div class="card"><div class="panel-h"><span data-icon="sliders"></span>服务与开关</div><div id="svcList"></div></div>
+  <div class="card" style="margin-top:16px"><div class="panel-h"><span data-icon="file"></span>执行结果<span class="r"><button class="mini" data-a="clear">清空</button></span></div><div class="out" id="svcOut" style="display:block">(暂无执行结果)</div></div>
+</section>
+
+<section class="tab" id="t-alarm" role="tabpanel">
+  <div class="card"><div class="panel-h"><span data-icon="bell"></span>告警规则<span class="r mut" id="ruleMeta"></span></div><div id="ruleList"></div></div>
+  <div class="card" style="margin-top:16px"><div class="panel-h"><span data-icon="alert"></span>告警记录<span class="r mut" id="alMeta"></span></div><div id="alertList" style="max-height:40vh;overflow:auto"></div></div>
+  <div class="card" style="margin-top:16px"><div class="panel-h"><span data-icon="clipboard"></span>操作审计<span class="r mut" id="auditMeta"></span></div><div id="auditList" style="max-height:40vh;overflow:auto"></div></div>
+  <div class="card" style="margin-top:16px"><div class="panel-h"><span data-icon="heart"></span>采集健康</div><div class="health-grid" id="agentHealth"></div></div>
+</section>
+
+</main>
+</div>
+<div class="mwrap" id="mwrap"><div class="mbox" role="dialog" aria-modal="true" aria-labelledby="mtitle">
+  <div class="mtitle" id="mtitle"></div>
+  <div class="mbody" id="mbody"></div>
+  <div class="mbtns"><button class="act" id="mno">取消</button><button class="act danger solid" id="myes">确认执行</button></div>
+</div></div>
+<div class="mwrap" id="hwrap"><div class="mbox wide" role="dialog" aria-modal="true" aria-label="主机管理">
+  <div class="mtitle" style="display:flex;align-items:center;justify-content:space-between">主机管理<button class="iconbtn" id="hclose" aria-label="关闭主机管理"><span data-icon="x"></span></button></div>
+  <div class="hlist" id="hlist"></div>
+  <div class="hform">
+    <div class="hf-title" id="hfTitle">添加服务器</div>
+    <div class="hf-grid">
+      <label>显示名<input id="hfLabel" maxlength="64" placeholder="如：二号训练机" autocomplete="off"></label>
+      <label>SSH 目标<input id="hfSsh" maxlength="128" placeholder="SSH 别名或 user@IP" autocomplete="off"></label>
+      <label>采集间隔（秒）<input id="hfInterval" type="number" min="1" max="300" value="3"></label>
+      <label>备注（可选）<input id="hfSub" maxlength="120" placeholder="如：YOUR_SERVER_IP · Your GPU Model · user" autocomplete="off"></label>
+    </div>
+    <div class="hf-actions">
+      <button class="act" id="hfTest">测试连接</button>
+      <button class="act primary" id="hfSave">添加</button>
+      <button class="act" id="hfCancel">清空</button>
+      <label class="hf-en"><input type="checkbox" id="hfEnabled" checked>启用采集</label>
+    </div>
+    <pre class="hf-out" id="hfOut" hidden></pre>
+    <div class="hf-err" id="hfErr"></div>
+  </div>
+  <details class="hhelp"><summary>前提：给新服务器配好免密 SSH（点展开）</summary>
+    <pre>1) 本机生成密钥（已有可跳过）：ssh-keygen -t ed25519
+2) 推送公钥到服务器：        ssh-copy-id user@服务器IP
+   （Windows 无 ssh-copy-id 时：type %USERPROFILE%\.ssh\id_ed25519.pub | ssh user@服务器IP "cat >> ~/.ssh/authorized_keys"）
+3) 验证免密：                ssh user@服务器IP echo ok
+4) 上面「SSH 目标」填 user@服务器IP；或在 ~/.ssh/config 配好别名后填别名。
+面板用普通用户权限采集即可；端口进程归属需要 root，界面会明确标注。</pre>
+  </details>
+</div></div>
+<div id="toasts" aria-live="polite"></div>
+<script src="/vendor/uplot.iife.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
