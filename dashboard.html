@@ -319,7 +319,9 @@ button.act.primary{background:var(--accent);border-color:var(--accent);color:#ff
     <div class="panel-h"><span data-icon="list"></span>进程<span class="r"><input class="inp" id="pFilter" placeholder="过滤 命令 / 用户 / PID" aria-label="过滤进程"><button class="seg" id="fullPathToggle">完整路径</button><span class="mut" id="pMeta"></span></span></div>
     <div style="overflow:auto;max-height:64vh">
       <table id="pTable"><thead><tr>
-        <th data-k="pid">PID</th><th data-k="user">用户</th><th data-k="pcpu">CPU%</th><th data-k="pmem">内存%</th>
+        <th data-k="pid">PID</th><th data-k="user">用户</th><th data-k="pcpu" title="单进程 CPU，按单颗逻辑核归一（与 top/htop 口径一致）：100% = 一核吃满；多线程进程可超过 100%。当前机器 20 核满载时，各进程之和上限为 2000%。">CPU%</th>
+        <th data-k="gpuMemMiB" title="该进程占用的显存(MiB)及占所在卡总量的百分比。单进程算力利用率 NVIDIA 不向 nvidia-smi 暴露（实测 driver 580.178.04：query-compute-apps 加任何利用率字段都报 not a valid field），故以显存口径为准">GPU·显存</th>
+        <th data-k="pmem">内存%</th>
         <th data-k="etimes">运行时长</th><th data-k="cmd">命令</th><th class="ops">操作</th>
       </tr></thead><tbody></tbody></table>
     </div>
@@ -364,7 +366,7 @@ button.act.primary{background:var(--accent);border-color:var(--accent);color:#ff
       <label>显示名<input id="hfLabel" maxlength="64" placeholder="如：二号训练机" autocomplete="off"></label>
       <label>SSH 目标<input id="hfSsh" maxlength="128" placeholder="SSH 别名或 user@IP" autocomplete="off"></label>
       <label>采集间隔（秒）<input id="hfInterval" type="number" min="1" max="300" value="3"></label>
-      <label>备注（可选）<input id="hfSub" maxlength="120" placeholder="如：YOUR_SERVER_IP · Your GPU Model · user" autocomplete="off"></label>
+      <label>备注（可选）<input id="hfSub" maxlength="120" placeholder="如：10.0.0.9 · A100 · lz" autocomplete="off"></label>
     </div>
     <div class="hf-actions">
       <button class="act" id="hfTest">测试连接</button>

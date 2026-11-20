@@ -1,8 +1,8 @@
 # 开发期工具：把本地脚本以 base64 送到远端 bash 执行（绕开 PowerShell 引号地狱）
-# 用法: pwsh -File build\rr.ps1 -Script collector.sh [-HostAlias YOUR_HOST_ALIAS] [-Env 'PANEL_ONCE=1']
+# 用法: pwsh -File build\rr.ps1 -Script collector.sh [-HostAlias Linux_3090] [-Env 'PANEL_ONCE=1']
 param(
   [Parameter(Mandatory = $true)][string]$Script,
-  [string]$HostAlias = 'YOUR_HOST_ALIAS',
+  [string]$HostAlias = 'Linux_3090',
   [string]$Env = ''
 )
 $raw = [IO.File]::ReadAllText($Script)

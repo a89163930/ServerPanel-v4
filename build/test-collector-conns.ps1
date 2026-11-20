@@ -17,9 +17,9 @@ $canned = @'
 Recv-Q Send-Q Local Address:Port   Peer Address:Port Process
 0      0          127.0.0.1:1234     127.0.0.1:5678
 0      0          [::1]:111          [::1]:44444
-0      0          YOUR_SERVER_IP:22     YOUR_CLIENT_IP:59073
-0      0          YOUR_SERVER_IP:22     YOUR_CLIENT_IP:59073
-0      0          YOUR_SERVER_IP:22     YOUR_CLIENT_IP:58512
+0      0          10.0.0.3:22      10.0.0.184:59073
+0      0          10.0.0.3:22      10.0.0.184:59073
+0      0          10.0.0.3:22      10.0.0.184:58512
 0      0          [2001:db8::1]:443  [2001:db8::2]:51000
 0      0          10.0.0.5:80        10.0.0.9:3333
 '@
@@ -35,7 +35,7 @@ conns_filter < /tmp/sp_cf_in.txt
 $inner = $inner.Replace('__CANNED__', $bCanned)
 $bInner = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($inner -replace "`r`n", "`n")))
 $cmd = "printf '%s' '$bColl' | base64 -d > /tmp/sp_cf_col.sh; printf '%s' '$bInner' | base64 -d | bash"
-$json = (& ssh -o BatchMode=yes -o ConnectTimeout=6 YOUR_HOST_ALIAS $cmd 2>&1 | Out-String).Trim()
+$json = (& ssh -o BatchMode=yes -o ConnectTimeout=6 Linux_3090 $cmd 2>&1 | Out-String).Trim()
 "远端返回: " + ($json -replace '\s+', ' ').Substring(0, [Math]::Min(150, $json.Length))
 
 if ($json -notmatch '^\[') { NO '管线未产出 JSON 数组(旧代码的典型表现：空/报错)' ''; "`n=== test-collector-conns: PASS=$pass FAIL=$fail ==="; exit 1 }

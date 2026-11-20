@@ -23,8 +23,8 @@ $inj = Code { try { (Invoke-WebRequest "$B/api/snapshot;cat/etc/passwd" -Headers
 if ($inj -in @(404, 400)) { OK '路径注入 => 404/400' } else { NO '路径注入' "got $inj" }
 
 "`n--- 2. 采集正确性 ---"
-$s = Invoke-RestMethod "$B/api/snapshot?host=YOUR_HOST_ID" -Headers $HDR -TimeoutSec 15
-if ($s.schema -eq 'sp1') { OK 'schema=sp1' } else { NO 'schema' $s.schema }
+$s = Invoke-RestMethod "$B/api/snapshot?host=gpu3090" -Headers $HDR -TimeoutSec 15
+if ($s.schema -eq 'sp2') { OK 'schema=sp2' } else { NO 'schema' $s.schema }
 if ($s.procCount -gt 200) { OK "进程全量 = $($s.procCount)" } else { NO '进程数过少' $s.procCount }
 if ($null -ne $s.gpu.util -and $null -ne $s.cpu.cores) { OK "GPU/CPU 有值" "gpu=$($s.gpu.util)% cores=$($s.cpu.cores) mem=$($s.gpu.memUsedMiB)/$($s.gpu.memTotalMiB)MiB" } else { NO 'GPU/CPU' }
 if ($null -ne $s.derived.cpuPct) { OK "CPU% 由代理算出" "$([math]::Round($s.derived.cpuPct,1))%" } else { NO 'CPU% 为 null' }
@@ -44,10 +44,10 @@ if ($hh.fresh -and $hh.ageSec -le 15) { OK '新鲜度=正常' "samples=$($hh.sam
 
 "`n--- 3. 历史三档 ---"
 foreach ($w in '15m', '1h', '24h', '7d') {
-  $hs = Invoke-RestMethod "$B/api/history?host=YOUR_HOST_ID&window=$w" -Headers $HDR -TimeoutSec 15
+  $hs = Invoke-RestMethod "$B/api/history?host=gpu3090&window=$w" -Headers $HDR -TimeoutSec 15
   if ($hs.ok -and @($hs.points).Count -ge 1) { OK "window=$w" "tier=$($hs.tier) pts=$(($hs.points).Count)" } else { NO "window=$w" ($hs | ConvertTo-Json -Compress) }
 }
-$fx = Code { (Invoke-RestMethod "$B/api/forensics?host=YOUR_HOST_ID&t=$([DateTimeOffset]::Now.ToUnixTimeSeconds())" -Headers $HDR -TimeoutSec 15).ok }
+$fx = Code { (Invoke-RestMethod "$B/api/forensics?host=gpu3090&t=$([DateTimeOffset]::Now.ToUnixTimeSeconds())" -Headers $HDR -TimeoutSec 15).ok }
 if ($fx -eq $true) { OK 'forensics 按时间点回查' } else { NO 'forensics' "$fx" }
 
 "`n--- 4. kill 白名单 ---"
@@ -62,37 +62,37 @@ function RunJob($bodyObj) {
   }
   return @{ status = 'timeout' }
 }
-$d1 = RunJob @{ host = 'YOUR_HOST_ID'; act = 'kill'; pid = 1 }
+$d1 = RunJob @{ host = 'gpu3090'; act = 'kill'; pid = 1 }
 if ($d1.status -eq 'denied') { OK 'PID 1 被拒绝' $d1.error } else { NO 'PID 1' ($d1 | ConvertTo-Json -Compress) }
-$d2 = RunJob @{ host = 'YOUR_HOST_ID'; act = 'kill'; pid = 999999 }
+$d2 = RunJob @{ host = 'gpu3090'; act = 'kill'; pid = 999999 }
 if ($d2.status -eq 'failed' -or $d2.status -eq 'denied') { OK '快照外的 PID 被拒绝' $d2.error } else { NO '快照外 PID' ($d2 | ConvertTo-Json -Compress) }
-$sshdSnap = (Invoke-RestMethod "$B/api/snapshot?host=YOUR_HOST_ID" -Headers $HDR -TimeoutSec 15).procs
+$sshdSnap = (Invoke-RestMethod "$B/api/snapshot?host=gpu3090" -Headers $HDR -TimeoutSec 15).procs
 $sshd = @($sshdSnap | Where-Object { $_.cmd -like '*sshd*' } | Select-Object -First 1)[0]
-if ($sshd) { $d3 = RunJob @{ host = 'YOUR_HOST_ID'; act = 'kill'; pid = $sshd.pid }; if ($d3.status -eq 'denied') { OK "sshd(pid $($sshd.pid)) 被拒绝" $d3.error } else { NO 'sshd 未被保护' ($d3 | ConvertTo-Json -Compress) } }
-$d4 = RunJob @{ host = 'YOUR_HOST_ID'; act = 'kill'; pid = '1; rm -rf /' }
+if ($sshd) { $d3 = RunJob @{ host = 'gpu3090'; act = 'kill'; pid = $sshd.pid }; if ($d3.status -eq 'denied') { OK "sshd(pid $($sshd.pid)) 被拒绝" $d3.error } else { NO 'sshd 未被保护' ($d3 | ConvertTo-Json -Compress) } }
+$d4 = RunJob @{ host = 'gpu3090'; act = 'kill'; pid = '1; rm -rf /' }
 if ($d4.status -eq 'failed' -or $d4.status -eq 'denied') { OK '命令注入型 pid 被拒' ($d4.error ?? $d4.status) } else { NO 'pid 注入' ($d4 | ConvertTo-Json -Compress) }
 
 "`n--- 5. 真实 kill 通路（自己起的临时进程，不碰用户任务） ---"
 $mk = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("nohup sleep 7771 >/dev/null 2>&1 & echo `$!"))
-$np = ((& ssh -o BatchMode=yes YOUR_HOST_ALIAS "echo $mk | base64 -d | bash") | Out-String).Trim()
+$np = ((& ssh -o BatchMode=yes Linux_3090 "echo $mk | base64 -d | bash") | Out-String).Trim()
 if ($np -match '^\d+$') {
   OK '远端已起临时 sleep' "pid=$np"
   Start-Sleep -Seconds 4
-  $in = @( (Invoke-RestMethod "$B/api/snapshot?host=YOUR_HOST_ID" -Headers $HDR -TimeoutSec 15).procs | Where-Object { $_.pid -eq [int]$np } ).Count
+  $in = @( (Invoke-RestMethod "$B/api/snapshot?host=gpu3090" -Headers $HDR -TimeoutSec 15).procs | Where-Object { $_.pid -eq [int]$np } ).Count
   if ($in -eq 1) { OK '该进程已进入面板快照' } else { NO '快照里没有它' }
-  $k = RunJob @{ host = 'YOUR_HOST_ID'; act = 'kill'; pid = [int]$np }
+  $k = RunJob @{ host = 'gpu3090'; act = 'kill'; pid = [int]$np }
   if ($k.ok -and $k.text -match 'OK') { OK 'kill 成功且服务器已确认' $k.text } else { NO 'kill' ($k | ConvertTo-Json -Compress) }
-  $chk = ((& ssh -o BatchMode=yes YOUR_HOST_ALIAS "ps -p $np -o pid=" | Out-String).Trim())
+  $chk = ((& ssh -o BatchMode=yes Linux_3090 "ps -p $np -o pid=" | Out-String).Trim())
   if ($chk -eq '') { OK '服务器侧复查：进程确实消失' } else { NO '服务器侧仍存在' "ps -p $np -> $chk" }
 } else { NO '临时进程没起来' "$np" }
 
 "`n--- 6. 服务动作与审计 ---"
-# svc_log 走真实存在的 systemd 服务(demo-inference)，不绑到那条失效的 gateway 路径上：
+# svc_log 走真实存在的 systemd 服务(ollama)，不绑到那条失效的 gateway 路径上：
 # gateway 的 logCmd 指向服务器上并不存在的目录，一旦该路径所在的文件系统悬挂，
 # 本断言会整块跑 20s 后 rc=124 变红——测试不应依赖一个已知的坏配置(设计文档 R-44)。
-$lg = RunJob @{ host = 'YOUR_HOST_ID'; act = 'svc_log'; svc = 'demo-inference' }
+$lg = RunJob @{ host = 'gpu3090'; act = 'svc_log'; svc = 'ollama' }
 if ($lg.ok) { OK 'svc_log 只读动作' (($lg.text -replace '\s+', ' ').Substring(0, [Math]::Min(70, $lg.text.Length))) } else { NO 'svc_log' ($lg | ConvertTo-Json -Compress) }
-$bad = RunJob @{ host = 'YOUR_HOST_ID'; act = 'svc_stop'; svc = 'not-a-real-service' }
+$bad = RunJob @{ host = 'gpu3090'; act = 'svc_stop'; svc = 'not-a-real-service' }
 if ($bad.status -eq 'failed') { OK '未配置的服务 id 被拒' $bad.error } else { NO '未知服务' ($bad | ConvertTo-Json -Compress) }
 $au = Invoke-RestMethod "$B/api/audit?all=1" -Headers $HDR -TimeoutSec 10
 if (@($au.events).Count -ge 3) { OK '审计流水已记录(?all=1 含测试)' "$(@($au.events).Count) 条" } else { NO '审计为空' }

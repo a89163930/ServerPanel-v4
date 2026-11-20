@@ -1,7 +1,7 @@
 # 诊断：用 agent.ps1 完全相同的构造函数生成远端命令，前台跑 8 秒看有没有行回来
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $cfg = Get-Content -LiteralPath (Join-Path $Root 'config.json') -Raw -Encoding utf8 | ConvertFrom-Json
-$H = @($cfg.hosts | Where-Object { $_.id -eq 'YOUR_HOST_ID' })[0]
+$H = @($cfg.hosts | Where-Object { $_.id -eq 'gpu3090' })[0]
 $units = (@($H.services | Where-Object { $_.kind -eq 'systemd' } | ForEach-Object { $_.unit }) -join ' ')
 $pats = @($H.services | Where-Object { $_.kind -eq 'pattern' } | ForEach-Object { $_.pattern })
 $patB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($pats -join "`n")))

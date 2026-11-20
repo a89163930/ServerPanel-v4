@@ -15,3 +15,5 @@ Desktop.ini
 # 会话工作区与配置备份（Save-Config 生成，不入库）
 .workbuddy/
 config.json.bak
+# 用户本机配置（含主机信息，不入库；新用户从 config.example.json 复制）
+/config.json

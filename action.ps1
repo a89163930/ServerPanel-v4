@@ -194,7 +194,7 @@ if ($act -in @('svc_start', 'svc_stop', 'svc_log')) {
   Add-Content -LiteralPath (Join-Path $Root 'actions.log') -Value ($audit | ConvertTo-Json -Compress) -Encoding utf8
   Finish @{ ok = $okRc; status = 'done'; rc = $r.rc; text = $text; svc = $sid; label = $svc.label;
             error = $(if ($mark) { "脚本报告 $mark：服务未按预期变更" } elseif (-not $okRc -and $r.rc -ne 0) { "远端返回 rc=$($r.rc)" } else { $null })
-            hint = $(if ($text -match 'password') { '服务器未给该用户配置免密 sudo，请在服务器执行: sudo visudo 加一行 your-ssh-user ALL=(ALL) NOPASSWD: /usr/bin/systemctl' } else { $null }) }
+            hint = $(if ($text -match 'password') { '服务器未给该用户配置免密 sudo，请在服务器执行: sudo visudo 加一行 <user> ALL=(ALL) NOPASSWD: /usr/bin/systemctl' } else { $null }) }
 }
 
 $audit.result = 'unknown_act'

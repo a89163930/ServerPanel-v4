@@ -1,7 +1,7 @@
 # 重启面板（保留 state 用 -KeepState；-IdleSec 覆盖空闲退出秒数）。
 #
 # 识别自己人的三代教训：
-#  1) 早先用 `-notmatch 'demo-app'` 想避免误杀网关，但项目路径本身含 Demoapp，
+#  1) 早先用 `-notmatch 'opensquilla'` 想避免误杀网关，但项目路径本身含 Opensquilla，
 #     结果把自己的 panel/agent 全排除 → 多 agent 并发覆写同一份 state。
 #  2) 改成必须 `-File <绝对项目路径>\(panel|agent).ps1` 后，用相对路径启动的面板
 #     (`-File panel.ps1`，在项目目录里手敲就会这样) 匹配不上 → 旧 hub 存活、新实例被

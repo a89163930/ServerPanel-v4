@@ -378,7 +378,8 @@ function Handle-Line($ln) {
   }
   $s = $null
   try { $s = $ln | ConvertFrom-Json } catch { $state.err = 'JSON 解析失败: ' + $_.Exception.Message; return }
-  if ("$($s.schema)" -ne 'sp1') { $state.err = "未知 schema: $($s.schema)"; return }
+  # R-80：procs[] 并入单进程显存后升到 sp2；仍接受 sp1，避免新 agent 先于远端 collector 重连时被误杀(升级窗口)
+  if ("$($s.schema)" -notin @('sp1', 'sp2')) { $state.err = "未知 schema: $($s.schema)"; return }
   try { Handle-Sample $s } catch { $state.err = "样本处理出错: $($_.Exception.Message)" }
 }
 

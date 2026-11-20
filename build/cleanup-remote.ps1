@@ -1,7 +1,7 @@
 # 清理本面板遗留在服务器上的采集循环（只认我们自己的特征，不碰任何别的进程）
 $ErrorActionPreference = 'Continue'
 $script = @'
-MARK="RVhQT1JUIFBBTkVMX1VOSVRTPWRlbW8taW5mZXJlbmNl"     # base64("export PANEL_UNITS=demo-inference") —— 只有本面板的命令行含这段
+MARK="ZXhwb3J0IFBBTkVMX1VOSVRTPSJvbGxhbWEi"     # base64("export PANEL_UNITS=ollama") —— 只有本面板的命令行含这段
 echo "== 清理前 =="
 ps -eo pid,ppid,etimes,args --no-headers | grep -F "$MARK" | grep -v grep | awk '{print "  wrapper "$1" ppid="$2" age="$3"s"}'
 ps -eo pid,ppid,args --no-headers | awk '$0 ~ /bash -s -- 3$/ {print "  loop    "$1" ppid="$2}'
@@ -32,4 +32,4 @@ echo "== 负载对照 =="
 cat /proc/loadavg
 '@
 $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($script -replace "`r`n", "`n")))
-& ssh -o BatchMode=yes -o ConnectTimeout=10 YOUR_HOST_ALIAS "echo $b64 | base64 -d | bash" 2>&1 | Out-String
+& ssh -o BatchMode=yes -o ConnectTimeout=10 Linux_3090 "echo $b64 | base64 -d | bash" 2>&1 | Out-String

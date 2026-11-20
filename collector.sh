@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  ServerPanel v4 · 远端采集器 (schema sp1)
+#  ServerPanel v4 · 远端采集器 (schema sp2)
 #  零安装依赖：bash + jq + coreutils + procps + iproute2 (+ nvidia-smi 可选)
 #  协议：stdout 每行一个 compact JSON；一行 = 一个样本
 #  设计约束：任何一项采集失败 => 字段显式 null 并写入 errors[]，绝不降级成 0
-#  用法：  PANEL_UNITS="demo-inference" PANEL_PATTERNS="your-service-pattern" \
+#  用法：  PANEL_UNITS="ollama" PANEL_PATTERNS="opensquilla gateway run" \
 #          bash collector.sh <interval_sec>        # 常驻流式
 #          PANEL_ONCE=1 bash collector.sh          # 单样本（调试）
 # ============================================================================
@@ -130,6 +130,7 @@ emit() {
     --arg     host "$(hostname 2>/dev/null)" \
     --arg     isroot "$is_root" \
     --argjson gpus "$(arr "$gpus_json")" \
+    --argjson gapps "$(arr "$gpu_apps_all")" \
     --arg     cpu_stat "$cpu_stat" --arg cores "$cores" --arg load "$load" \
     --arg     upt "$upt" --arg mem "$mem" \
     --argjson disk "$(arr "$disk")" --arg net "$net" \
@@ -142,10 +143,12 @@ emit() {
      ($load | split(" ") | map(tonumber?)) as $ld |
      ($mem  | split(" ") | map(tonumber?)) as $mm |
      ($net  | split(" ") | map(tonumber?)) as $nn |
-     (($procsF[0].list) // []) as $procs |
+      (($gapps // []) | map({(.pid|tostring): .memMiB}) | add // {}) as $gpum |
+      (($procsF[0].list) // []) as $pl |
+      ($pl | map(. + {gpuMemMiB: ($gpum[.pid|tostring] // null)})) as $procs |
      (($procsF[0].total) // 0) as $ptrue |
      ($gpus[0] // {}) as $g0 |
-     {schema:"sp1", ts:$ts, host:$host, errors:$errs,
+     {schema:"sp2", ts:$ts, host:$host, errors:$errs,
       gpu:{present:(($gpus|length)>0), name:($g0.name // ""),
            util:($g0.util // null), memUsedMiB:($g0.memUsedMiB // null), memTotalMiB:($g0.memTotalMiB // null),
            tempC:($g0.tempC // null), powerW:($g0.powerW // null), procs:($g0.procs // [])},

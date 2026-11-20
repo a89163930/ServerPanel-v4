@@ -3,17 +3,30 @@ $ErrorActionPreference = 'Stop'
 $B = 'http://127.0.0.1:48732'
 $boot = Invoke-RestMethod "$B/api/boot" -TimeoutSec 10
 $H = @{ 'X-Panel-Token' = [string]$boot.token }
-$s = Invoke-RestMethod "$B/api/snapshot?host=YOUR_HOST_ID" -Headers $H -TimeoutSec 20
+$s = Invoke-RestMethod "$B/api/snapshot?host=gpu3090" -Headers $H -TimeoutSec 20
 $props = $s.PSObject.Properties.Name
 $hasPortsTotal = $props -contains 'portsTotal'
 $fail = 0
 function CK($name, $cond, $detail) { if ($cond) { "PASS  $name  $detail" } else { $script:fail++; "FAIL  $name  $detail" } }
-CK 'schema' ($s.schema -eq 'sp1') $s.schema
+CK 'schema' ($s.schema -eq 'sp2') $s.schema
 CK 'errors 为空数组' (@($s.errors).Count -eq 0 -and $null -ne $s.errors) ("type=" + ($s.errors | ForEach-Object { $_.GetType().Name } | Select-Object -First 1))
 CK '含 portsTotal 字段' ($props -contains 'portsTotal') "值=$($s.portsTotal)"
 CK 'conns 每条字段完整' (@($s.conns | Where-Object { -not $_.local -or -not $_.remote }).Count -eq 0) "$(@($s.conns).Count) 条，首条 $(if(@($s.conns).Count){$s.conns[0].local + ' -> ' + $s.conns[0].remote}else{'无'})"
 CK 'portsTotal >= ports 长度' ([int]$s.portsTotal -ge @($s.ports).Count) "$($s.portsTotal) vs $((@($s.ports)).Count)"
 CK 'procTotal >= procCount' ([int]$s.procTotal -ge [int]$s.procCount) "$($s.procTotal)/$($s.procCount)"
+# R-80：GPU 显存必须并进进程表（pid 匹配 + 数值相等），否则界面新列永远空转
+$gj = @(); foreach ($g in @($s.gpus)) { if ($g.procs) { $gj += @($g.procs) } }
+if (@($gj).Count -gt 0) {
+  $joined = $true; $cmpN = 0
+  foreach ($gp in @($gj)) {
+    $cmpN++
+    $hit = @($s.procs | Where-Object { [int]$_.pid -eq [int]$gp.pid })[0]
+    if (-not $hit) { $joined = $false; continue }
+    $hv = $hit.gpuMemMiB
+    if ($null -eq $hv -or "" -eq $hv -or ([int][math]::Floor([double]$hv) -ne [int][math]::Floor([double]$gp.memMiB))) { $joined = $false }
+  }
+  CK 'procs 已并入 GPU 显存(gpuMemMiB)' $joined "比对 $cmpN 条占显存进程"
+} else { CK 'procs 已并入 GPU 显存(gpuMemMiB)' $true '本周期无占显存进程，跳过口径比对' }
 # 同样避开 -like 的 [..] 字符类陷阱，用字面量 StartsWith
 $lbBad = @($s.conns | Where-Object {
   $_.local.StartsWith('127.') -or $_.remote.StartsWith('127.') -or

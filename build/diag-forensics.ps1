@@ -1,5 +1,5 @@
 # 把 /api/forensics 的处理逻辑原样搬出来跑，暴露真实异常
-$Root = 'C:\path\to\ServerPanel-v4'
+$Root = 'K:\Opensquilla\ServerPanel-v4'
 $ts = [double](Get-Content (Join-Path $Root 'history\2026-11-13.jsonl') -TotalCount 1 -Encoding UTF8 | ForEach-Object { ($_ | ConvertFrom-Json).t })
 "ts = $ts  type=$($ts.GetType().Name)"
 $day = [DateTimeOffset]::FromUnixTimeSeconds([int64]$ts).LocalDate

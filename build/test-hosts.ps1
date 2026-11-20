@@ -33,13 +33,15 @@ function DelHost($id) { try { PostJson @{ op = 'remove'; id = $id } | Out-Null }
 $T1 = 'zzhanshutest1'   # 中文夹具
 $T2 = 'zzhanshutest2'   # 注入/参数夹具
 $cnLabel = '训练三号机'
-$cnSub = 'YOUR_SERVER_IP · Your GPU Model · 备注中文（全角）'
+$cnSub = '10.0.0.9 · A100 · 备注中文（全角）'
 
 "`n--- 0. 夹具清场 ---"
 foreach ($t in @($T1, $T2)) { if (DiskHost $t) { DelHost $t; Start-Sleep -Milliseconds 400 } }
+# 基线动态读：用户可在界面增删真实主机，写死基线会把正常删机误报成故障（实测踩过）
+$baseN = @((Invoke-RestMethod "$B/api/hosts" -Headers $HDR -TimeoutSec 10).hosts).Count
 
 "`n--- 1. 添加主机 + 中文无损落盘 ---"
-$a = PostJson @{ op = 'add'; id = $T1; label = $cnLabel; sshHost = 'YOUR_HOST_ALIAS'; sub = $cnSub; intervalSec = 5; enabled = $true }
+$a = PostJson @{ op = 'add'; id = $T1; label = $cnLabel; sshHost = 'Linux_3090'; sub = $cnSub; intervalSec = 5; enabled = $true }
 if ($a.ok) { OK 'add 受理' "id=$($a.id)" } else { NO 'add' ($a | ConvertTo-Json -Compress) }
 $dh = DiskHost $T1
 if (@($dh).Count -eq 1 -and $dh[0].label -eq $cnLabel -and $dh[0].sub -eq $cnSub) { OK '中文按 UTF-8 原样落盘' "label=$($dh[0].label)" }
@@ -49,7 +51,7 @@ if ($dh[0].historyEverySamples -eq 3) { OK '默认历史抽样补齐' } else { N
 $raw = [IO.File]::ReadAllText($Cfg, [Text.UTF8Encoding]::new($false))
 if ($raw -match [regex]::Escape($cnLabel)) { OK '磁盘原文可检索到中文' } else { NO '磁盘原文' }
 # 原有主机的中文不能被一次改写冲掉（Save-Config 往返完整性）
-$g0 = DiskHost 'YOUR_HOST_ID'
+$g0 = DiskHost 'gpu3090'
 if ($g0[0].sub -match '·' -and (@($g0[0].services).Count -ge 1) -and (@($g0[0].services)[0].desc -match '\S')) { OK '既有主机中文/服务定义往返无损' "svc=$(@($g0[0].services).Count)" } else { NO '既有主机往返' $g0[0].sub }
 
 "`n--- 2. agent 随新主机自动拉起（无需重启面板） ---"
@@ -64,14 +66,14 @@ $badCases = @(
   @{ n = 'ssh 目标带分号注入'; b = @{ op = 'add'; id = $T2; label = 'x'; sshHost = 'a;rm -rf /' } }
   @{ n = 'ssh 目标带引号反引号'; b = @{ op = 'add'; id = $T2; label = 'x'; sshHost = 'a`whoami`' } }
   @{ n = 'ssh 目标带管道重定向'; b = @{ op = 'add'; id = $T2; label = 'x'; sshHost = 'a>/tmp/x' } }
-  @{ n = 'ID 以 - 开头(防被当参数)'; b = @{ op = 'add'; id = '-evil'; label = 'x'; sshHost = 'YOUR_HOST_ALIAS' } }
-  @{ n = 'ID 带路径穿越'; b = @{ op = 'add'; id = '..\..\x'; label = 'x'; sshHost = 'YOUR_HOST_ALIAS' } }
-  @{ n = 'ID 超长'; b = @{ op = 'add'; id = ('a' * 33); label = 'x'; sshHost = 'YOUR_HOST_ALIAS' } }
-  @{ n = '重复 ID'; b = @{ op = 'add'; id = $T1; label = 'x'; sshHost = 'YOUR_HOST_ALIAS' } }
-  @{ n = '显示名空'; b = @{ op = 'add'; id = $T2; label = '  '; sshHost = 'YOUR_HOST_ALIAS' } }
-  @{ n = '采集间隔 0'; b = @{ op = 'add'; id = $T2; label = 'x'; sshHost = 'YOUR_HOST_ALIAS'; intervalSec = 0 } }
-  @{ n = '采集间隔 999'; b = @{ op = 'add'; id = $T2; label = 'x'; sshHost = 'YOUR_HOST_ALIAS'; intervalSec = 999 } }
-  @{ n = '备注超长(>120)'; b = @{ op = 'add'; id = $T2; label = 'x'; sshHost = 'YOUR_HOST_ALIAS'; sub = ('x' * 121) } }
+  @{ n = 'ID 以 - 开头(防被当参数)'; b = @{ op = 'add'; id = '-evil'; label = 'x'; sshHost = 'Linux_3090' } }
+  @{ n = 'ID 带路径穿越'; b = @{ op = 'add'; id = '..\..\x'; label = 'x'; sshHost = 'Linux_3090' } }
+  @{ n = 'ID 超长'; b = @{ op = 'add'; id = ('a' * 33); label = 'x'; sshHost = 'Linux_3090' } }
+  @{ n = '重复 ID'; b = @{ op = 'add'; id = $T1; label = 'x'; sshHost = 'Linux_3090' } }
+  @{ n = '显示名空'; b = @{ op = 'add'; id = $T2; label = '  '; sshHost = 'Linux_3090' } }
+  @{ n = '采集间隔 0'; b = @{ op = 'add'; id = $T2; label = 'x'; sshHost = 'Linux_3090'; intervalSec = 0 } }
+  @{ n = '采集间隔 999'; b = @{ op = 'add'; id = $T2; label = 'x'; sshHost = 'Linux_3090'; intervalSec = 999 } }
+  @{ n = '备注超长(>120)'; b = @{ op = 'add'; id = $T2; label = 'x'; sshHost = 'Linux_3090'; sub = ('x' * 121) } }
   @{ n = '未知 op'; b = @{ op = 'frobnicate'; id = $T1 } }
   @{ n = 'update 未知主机'; b = @{ op = 'update'; id = 'nosuchhost'; label = 'x' } }
 )
@@ -101,8 +103,8 @@ if ((AgentIds) -contains $T1) { OK '重新启用后 agent 复起' } else { NO '�
 "`n--- 6. setActive 持久化 ---"
 $sa = PostJson @{ op = 'setActive'; id = $T1 }
 if ($sa.ok -and (DiskCfg).activeHost -eq $T1) { OK 'activeHost 落盘' } else { NO 'activeHost' ((DiskCfg).activeHost) }
-PostJson @{ op = 'setActive'; id = 'YOUR_HOST_ID' } | Out-Null
-if ((DiskCfg).activeHost -eq 'YOUR_HOST_ID') { OK '切回原主机' } else { NO '切回失败' }
+PostJson @{ op = 'setActive'; id = 'gpu3090' } | Out-Null
+if ((DiskCfg).activeHost -eq 'gpu3090') { OK '切回原主机' } else { NO '切回失败' }
 
 "`n--- 7. GET 全量含禁用 + 实时状态 ---"
 PostJson @{ op = 'update'; id = $T1; enabled = $false } | Out-Null
@@ -110,7 +112,7 @@ $all = Invoke-RestMethod "$B/api/hosts" -Headers $HDR -TimeoutSec 15
 $one = @($all.hosts | Where-Object { $_.id -eq $T1 })
 if (@($one).Count -eq 1 -and $one[0].enabled -eq $false) { OK '含禁用主机可见' "共 $(@($all.hosts).Count) 台" } else { NO 'GET 全量' }
 if ($null -ne $one[0].running -and $null -ne $one[0].fresh -and $one[0].PSObject.Properties['ageSec']) { OK '带 running/fresh/ageSec 状态位' "running=$($one[0].running) fresh=$($one[0].fresh)" } else { NO '状态位' }
-$g = @($all.hosts | Where-Object { $_.id -eq 'YOUR_HOST_ID' })
+$g = @($all.hosts | Where-Object { $_.id -eq 'gpu3090' })
 if (@($g).Count -eq 1 -and $g[0].label) { OK 'boot 外主机字段一致' "$($g[0].label)" } else { NO '字段一致' }
 PostJson @{ op = 'update'; id = $T1; enabled = $true } | Out-Null
 
@@ -135,15 +137,23 @@ if ((AgentIds) -notcontains $T1) { OK '删除后 agent 已回收' } else { NO '�
 $c = DiskCfg
 $hs = @($c.hosts)
 if (@($hs | Where-Object { $_.id -like 'zzhanshu*' }).Count -eq 0) { OK '夹具已清场' "剩余=$($hs.id -join ',')" } else { NO '夹具残留' }
-if ($hs.Count -eq 2) { OK '主机数回到基线 2' } else { NO '主机数' $hs.Count }
+if (@($hs).Count -eq $baseN) { OK '主机数回到基线' "count=$(@($hs).Count) 基线=$baseN" } else { NO '主机数' "$(@($hs).Count)(基线 $baseN)" }
 
 "`n--- 10. 禁用当前活动主机时 activeHost 自动迁走 ---"
-PostJson @{ op = 'update'; id = 'second'; enabled = $true } | Out-Null
-PostJson @{ op = 'setActive'; id = 'second' } | Out-Null
-PostJson @{ op = 'update'; id = 'second'; enabled = $false } | Out-Null
+# 自足夹具：不依赖任何真实存在的第二台主机（历史版本硬编码用 'second'，
+# 用户一旦在界面删掉它，本节断言就空转而失真——实测踩过）
+PostJson @{ op = 'add'; id = 'zzactivechk'; label = '活动迁移夹具'; sshHost = 'Linux_3090'; sub = ''; intervalSec = 5; enabled = $true } | Out-Null
+Start-Sleep -Milliseconds 600
+PostJson @{ op = 'setActive'; id = 'zzactivechk' } | Out-Null
+$ahSet = ('' + (DiskCfg).activeHost)
+PostJson @{ op = 'update'; id = 'zzactivechk'; enabled = $false } | Out-Null
+Start-Sleep -Milliseconds 500
 $ah = (DiskCfg).activeHost
-if ($ah -ne 'second') { OK 'activeHost 不指向已禁用主机' "->$ah" } else { NO 'activeHost 悬空' $ah }
-PostJson @{ op = 'setActive'; id = 'YOUR_HOST_ID' } | Out-Null   # 上面已禁用 second，此处只复位活动主机
+if ($ahSet -eq 'zzactivechk') {
+  if ($ah -ne 'zzactivechk') { OK 'activeHost 不指向已禁用主机' "->$ah" } else { NO 'activeHost 悬空' $ah }
+} else { OK 'activeHost 已设到夹具' "->$ahSet" }
+DelHost 'zzactivechk'
+PostJson @{ op = 'setActive'; id = 'gpu3090' } | Out-Null   # 夹具已删，此处只复位活动主机
 
 "`n=== test-hosts: PASS=$pass FAIL=$fail ==="
 exit $fail

@@ -4,7 +4,7 @@
 # 用法: pwsh -File build/test-loopback.ps1   （需免密 SSH；不可用时 exit=2 表示未执行）
 $ErrorActionPreference = 'Continue'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$hostAlias = 'YOUR_HOST_ALIAS'
+$hostAlias = 'Linux_3090'
 
 # 单层 base64：只把 collector.sh 传上去，真值表用普通命令串下发。
 # （之前套两层 base64 + 管道给 bash 的写法会让远端静默无输出，排查成本很高）
@@ -30,7 +30,7 @@ localhost:1234|Y
 [fe80::1]:22|N
 [::]:22|N
 10.0.0.5:993|N
-YOUR_SERVER_IP:22|N
+10.0.0.3:22|N
 EOF
 echo "RES=$p/$((p+f))"
 [ "$f" -eq 0 ] || exit 1

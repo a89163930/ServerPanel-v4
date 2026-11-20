@@ -12,12 +12,12 @@ function NO($n, $d = '') { $script:fail++; "  FAIL  $n  $d" }
 function Send-File([string]$localPath, [string]$remotePath) {
   $b64 = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes(
     ([IO.File]::ReadAllText($localPath, [Text.UTF8Encoding]::new($false)) -replace "`r`n", "`n")))
-  $r = (& ssh -o BatchMode=yes -o ConnectTimeout=8 YOUR_HOST_ALIAS "printf '%s' '$b64' | base64 -d > $remotePath; wc -c < $remotePath") 2>&1 | Out-String
+  $r = (& ssh -o BatchMode=yes -o ConnectTimeout=8 Linux_3090 "printf '%s' '$b64' | base64 -d > $remotePath; wc -c < $remotePath") 2>&1 | Out-String
   return ('' + $r).Trim()
 }
 function Remote($script) {
   $b64 = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes(($script -replace "`r`n", "`n")))
-  return ((& ssh -o BatchMode=yes -o ConnectTimeout=8 YOUR_HOST_ALIAS "echo $b64 | base64 -d | bash") 2>&1 | Out-String)
+  return ((& ssh -o BatchMode=yes -o ConnectTimeout=8 Linux_3090 "echo $b64 | base64 -d | bash") 2>&1 | Out-String)
 }
 
 '--- 0. 远端可用性 ---'
@@ -86,8 +86,25 @@ if ($clean -match 'INVARIANT=(\d+)') {
   else { NO 'procTotal < procCount 出现' "$($matches[1]) 个样本" }
 } else { NO '未能判定 procTotal 不变量' (($clean -replace '\s+', ' ').Substring(0, [Math]::Min(160, ('' + $clean).Length))) }
 if ($clean -match 'SCHEMA=(\S+)') {
-  if ($matches[1] -eq 'sp1') { OK 'schema 仍为 sp1' } else { NO 'schema 变化' $matches[1] }
+  if ($matches[1] -eq 'sp2') { OK 'schema 为 sp2（R-80 单进程显存并入）' } else { NO 'schema 变化' $matches[1] }
 }
+
+# R-80 金丝雀：把工作区 collector 再传一次，真机单周期——占显存进程的 pid 必须出现在 procs 且 gpuMemMiB 相等
+$null = Send-File (Join-Path $root 'collector.sh') '/tmp/sp_col_test.sh'
+$joinProbe = Remote @'
+bash /tmp/sp_col_test.sh 1 > /tmp/sp_join.jsonl 2>/dev/null &
+P=$!; sleep 4; kill $P 2>/dev/null; wait $P 2>/dev/null
+n=$(jq -s 'map(select(((.gpus//[])|length)>0 and ((.gpus[0].procs//[])|length)>0)) | length' /tmp/sp_join.jsonl)
+if [ "$n" = "0" ]; then echo "JOINED=NA"
+else echo "JOINED=$(jq -sr 'map(select(((.gpus//[])|length)>0 and ((.gpus[0].procs//[])|length)>0)) | .[0] as $s | ($s.gpus[0].procs[0].pid) as $p | [$s.procs[]?|select(.pid==$p)] | if length>0 then (((.[0].gpuMemMiB // -1)) == ($s.gpus[0].procs[0].memMiB)) else false end' /tmp/sp_join.jsonl)"
+fi
+rm -f /tmp/sp_join.jsonl
+'@
+if ($joinProbe -match 'JOINED=(\S+)' ) {
+  if ($matches[1] -eq 'NA') { OK '单进程显存并入：本周期无占显存进程，未比对' }
+  elseif ($matches[1] -eq 'true') { OK '单进程显存已并入 procs(pid+数值匹配)' }
+  else { NO '单进程显存未并入 procs' $matches[1] }
+} else { NO '未能判定显存并入' (`$joinProbe -replace '\s+', ' ') }
 
 "`n=== test-collector-errors: PASS=$pass FAIL=$fail ==="
 exit $fail

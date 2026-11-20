@@ -18,18 +18,26 @@ ServerPanel solves this: **zero-install remote**, **native Windows UI**, **GPU-f
 ```bash
 git clone https://github.com/a89163930/ServerPanel-v4.git
 cd ServerPanel-v4
-cp config.example.json config.json
+copy config.example.json config.json
 # edit config.json: hosts[].sshHost, services, etc.
 .\ServerPanel.bat
 ```
 
 Open `http://127.0.0.1:48732` (or your configured port).
 
+## Windows requirements
+
+- **PowerShell 7** (`pwsh`) — install once with `winget install Microsoft.PowerShell`.
+- **OpenSSH client** — bundled with Windows 10/11 (enable via *Settings → Apps → Optional features* if missing).
+- **Edge or Chromium** for the app-mode window. The launcher probes for an installed browser and falls back to `http://127.0.0.1:<port>` in the default browser if none is found.
+
+All three are already present on most developer machines.
+
 ## Features
 
 | Feature | Details |
 |---------|---------|
-| **Live metrics** | CPU, memory, disk, network, GPU VRAM/temperature/SM, top processes, service state |
+| **Live metrics** | CPU (total + per-core load), memory, disk, network, GPU VRAM/temperature/SM, top processes (per-process CPU% is normalized per logical core — 100% = one core saturated, matching `top`/`htop`), service state |
 | **History** | uPlot dual-axis charts, 3-tier history, adjustable time window |
 | **Alerts** | Threshold + duration + cooldown; dead-alert detection (DR-78) |
 | **Actions** | Service start/stop, process kill, all via config whitelist |
@@ -55,12 +63,20 @@ No Python, no Node.js, no persistent daemon.
 | `collector.sh` | Remote metrics collector |
 | `app.js` | Frontend (vanilla JS + uPlot) |
 
+## Remote collector notes
+
+- `collector.sh` is uploaded **once when a stream starts**. Editing the script requires restarting the agent (or waiting for the session to reconnect) before the change takes effect.
+- The active version is shown in the UI as `Collector <sha256-prefix>` and equals the SHA256 prefix of `collector.sh` — use it to confirm your running copy matches the repo.
+- Schema is currently **sp2**: `procs[]` carries a per-process `gpuMemMiB` field. NVIDIA does not expose per-process SM utilization via the nvidia-smi CLI (verified on driver 580.x), so per-process GPU usage is reported by VRAM share, e.g. `354M (1.4%)`. Whole-card utilization is still available as usual.
+
 ## Tests
 
 ```bash
-# Master gate (all suites)
+# Master gate (all thirteen suites)
 pwsh -File build/gate.ps1
 ```
+
+Suites include the launcher contract (`build/test-launcher.ps1`: the double-click BAT must be cmd-parseable and exit 0 when run as-is), the hosts-management regression, the collector contracts (schema, error semantics, per-process VRAM canary), loopback/IP truth tables, chart pixel checks, and audit hygiene (test traffic must never evict real user actions from the visible audit window).
 
 > Tests require **PowerShell 7**. Windows PowerShell 5.1 will mangle UTF-8.
 

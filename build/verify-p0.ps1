@@ -10,13 +10,13 @@ $H = @{ 'X-Panel-Token' = [string]$boot.token }
 
 "`n--- P0-1 forensics 契约 ---"
 $now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
-$fx = Invoke-RestMethod "$B/api/forensics?host=YOUR_HOST_ID&t=$now" -Headers $H -TimeoutSec 15
+$fx = Invoke-RestMethod "$B/api/forensics?host=gpu3090&t=$now" -Headers $H -TimeoutSec 15
 if ($fx.ok -and $fx.matched -and ($null -ne $fx.match) -and ($null -ne $fx.match.PSObject.Properties['gproc'])) { OK '命中: ok/matched/match.gproc 齐全' "deltaSec=$($fx.deltaSec)" } else { NO '命中契约' ($fx | ConvertTo-Json -Compress -Depth 3) }
-$nm = Invoke-RestMethod "$B/api/forensics?host=YOUR_HOST_ID&t=1" -Headers $H -TimeoutSec 15
+$nm = Invoke-RestMethod "$B/api/forensics?host=gpu3090&t=1" -Headers $H -TimeoutSec 15
 if ((-not $nm.ok) -and $nm.error -eq 'no_match') { OK '无命中: ok=false + error=no_match' "note=$($nm.note)" } else { NO '无命中契约' ($nm | ConvertTo-Json -Compress) }
 
 "`n--- P0-2 历史无重复时间点 ---"
-$rf = Join-Path $root 'state\rollup-YOUR_HOST_ID.json'
+$rf = Join-Path $root 'state\rollup-gpu3090.json'
 if (Test-Path $rf) {
   $d = Get-Content $rf -Raw -Encoding UTF8 | ConvertFrom-Json
   foreach ($k in 'fine', 'mid', 'coarse') {
@@ -26,7 +26,7 @@ if (Test-Path $rf) {
   }
 } else { NO 'rollup 文件不存在' }
 foreach ($w in '15m', '1h', '24h', '7d') {
-  $hs = Invoke-RestMethod "$B/api/history?host=YOUR_HOST_ID&window=$w" -Headers $H -TimeoutSec 15
+  $hs = Invoke-RestMethod "$B/api/history?host=gpu3090&window=$w" -Headers $H -TimeoutSec 15
   $ts = @($hs.points | ForEach-Object { $_[0] })
   $mono = $true; for ($i = 1; $i -lt $ts.Count; $i++) { if ($ts[$i] -le $ts[$i - 1]) { $mono = $false; break } }
   if ($hs.ok -and $mono) { OK "history $w t严格递增" "n=$($ts.Count)" } else { NO "history $w 单调性" "mono=$mono" }
@@ -37,7 +37,7 @@ $maxMs = 0; $denied = 0; $timeout = 0
 for ($i = 0; $i -lt 20; $i++) {
   $sw = [Diagnostics.Stopwatch]::StartNew()
   # tag='e2e' 不能忘：这一招会连打 20 次 kill，不标记就会把用户真实操作挤出审计默认可见窗口
-  $j = Invoke-RestMethod "$B/api/action" -Method Post -Body (@{ host = 'YOUR_HOST_ID'; act = 'kill'; pid = 1; tag = 'e2e' } | ConvertTo-Json -Compress) -ContentType 'application/json' -Headers $H -TimeoutSec 15
+  $j = Invoke-RestMethod "$B/api/action" -Method Post -Body (@{ host = 'gpu3090'; act = 'kill'; pid = 1; tag = 'e2e' } | ConvertTo-Json -Compress) -ContentType 'application/json' -Headers $H -TimeoutSec 15
   $st = 'running'
   for ($k = 0; $k -lt 30; $k++) {
     Start-Sleep -Milliseconds 150

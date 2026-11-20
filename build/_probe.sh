@@ -12,7 +12,7 @@ nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader 2>&1 | hea
 echo "== proccount"; ps -eo pid --no-headers | wc -l
 echo "== etimes"; ps -eo pid,etimes --no-headers | head -2
 echo "== sudon"; sudo -n true 2>&1 | head -1
-echo "== sysctl"; systemctl is-enabled demo-inference 2>&1; systemctl is-active demo-inference 2>&1
+echo "== sysctl"; systemctl is-enabled ollama 2>&1; systemctl is-active ollama 2>&1
 echo "== ssver"; ss -V 2>&1 | head -1
 echo "== host"; hostname; uname -r
 echo "== cntrl"; printf 'a\tb"c\\d\ne' | sed 's/[[:cntrl:]]/ /g' | od -c | head -2

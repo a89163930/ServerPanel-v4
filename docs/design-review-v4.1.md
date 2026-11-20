@@ -42,9 +42,9 @@
 | 通读 `dashboard.html` 219 行 + `app.js` 421 行 | 全部样式与渲染逻辑 |
 | 通读 `panel.ps1` 371 行 + `agent.ps1` 381 行 | 8 个 API 端点、token 鉴权、rollup 三档预聚合 |
 | 通读 `action.ps1` + `collector.sh` | kill 白名单校验链、远端采集 schema sp1 |
-| 运行态抓取 | `state/latest-YOUR_HOST_ID.json` 完整字段树、meta、alerts、actions.log |
+| 运行态抓取 | `state/latest-gpu3090.json` 完整字段树、meta、alerts、actions.log |
 | 实机截图 | 总览、性能曲线、进程、服务与开关 4 页存档 + 本次补拍网络、告警与审计 2 页 |
-| 远端链路复现 | 在 YOUR_SERVER_IP 上逐段定位中文路径变问号的环节 |
+| 远端链路复现 | 在远端主机上逐段定位中文路径变问号的环节 |
 
 ### 2.2 证据文件
 
@@ -64,7 +64,7 @@
 
 设计迭代前必须锁定的数据契约，避免设计与实现两张皮。
 
-### 3.1 快照字段（`state/latest-YOUR_HOST_ID.json`）
+### 3.1 快照字段（`state/latest-gpu3090.json`）
 
 ```
 schema ts host errors
@@ -107,13 +107,13 @@ derived  cpuPct rxRateBps txRateBps memPct swapPct gpuMemPct agentTs hostId
 | 编号 | 问题 | 证据 | 影响 |
 |---|---|---|---|
 | R-01 | 总览 6 张卡片用 `repeat(auto-fit, minmax(215px,1fr))`，默认窗口 1320px 下排成 5+1，第 6 张「网络」卡片独占一行，右侧 4/5 全空 | `log/v4-ov.png` | 首屏第一眼就是空洞，这是「粗糙」最直接的来源 |
-| R-02 | 进程命令里的中文路径变成 `??????????`，逐字替换 | `state/latest-YOUR_HOST_ID.json` PID 2533235 | 中文目录名的任务全部无法区分，进程表核心功能失效 |
+| R-02 | 进程命令里的中文路径变成 `??????????`，逐字替换 | `state/latest-gpu3090.json` PID 2533235 | 中文目录名的任务全部无法区分，进程表核心功能失效 |
 | R-03 | 同一屏内 20+ 个 emoji 当图标与状态指示器，且同一语义用了 4 种不同字形 | `dashboard.html` 第 115、135-145、192-206 行 | 跨平台字形不一致，正式工具不该长这样；状态无法用颜色以外的维度识别 |
 | R-04 | 一句话结论把 6 条判断平铺成 6 行绿勾，没有严重度分层，也没有一句真正的「结论」 | `log/v4-ov.png` 结论区 | 用户仍需自己扫 6 行才能得出判断，等于没做归纳 |
 | R-05 | 主图把 CPU%、GPU%、显存%、GPU 温度塞进同一个 0-100 纵轴；网络图把 KB/s 和负载塞进同一个纵轴 | `app.js` `mkChart($('chMain'), MAIN_SERIES, 100, '% / ℃')`、`mkChart($('chNet'), NET_SERIES, null, 'KB/s')` | 温度与百分比量纲不同；负载 8 与流量 689032 差 5 个数量级，负载线被压成贴底直线不可读 |
 | R-06 | 进程页每行常驻「结束」「强杀」两个按钮，单屏 200 个 | `log/v4-dom.html` 统计 `data-kill` 100 + `data-kill9` 100 | 视觉重心被按钮占满，数据反而看不见；误触风险 |
 | R-07 | 结论区与图表区之外无任何告警阈值可视化，`config.json` 里 6 条规则完全没进 UI | `/api/boot` 返回 keys 仅 `port idleExitSec ok active token hosts version` | 用户不知道「离告警还有多远」，阈值改了也无感知 |
-| R-08 | 主机下拉框只有 1 个选项 | `/api/boot` → `hosts: ['YOUR_HOST_ID']` | 死交互 |
+| R-08 | 主机下拉框只有 1 个选项 | `/api/boot` → `hosts: ['gpu3090']` | 死交互 |
 | R-09 | `ports` 归属进程为空时统一显示「无进程信息」，与「权限不足拿不到」无法区分 | `live-net.png` 10 个端口 7 个「无进程信息」 | 误导用户以为进程不存在 |
 
 ### 4.2 P1
@@ -399,7 +399,7 @@ derived  cpuPct rxRateBps txRateBps memPct swapPct gpuMemPct agentTs hostId
 
 #### DR-25 修复中文路径变问号 P0
 
-根因已定位：`collector.sh` 第 11 行 `export LC_ALL=C` 使 procps 的 `ps` 在 C locale 下把每个非 ASCII 字节替换成 `?`，4 个汉字变 12 个问号。jq 与 PowerShell 环节均无问题，已在 YOUR_SERVER_IP 上逐段复现验证。
+根因已定位：`collector.sh` 第 11 行 `export LC_ALL=C` 使 procps 的 `ps` 在 C locale 下把每个非 ASCII 字节替换成 `?`，4 个汉字变 12 个问号。jq 与 PowerShell 环节均无问题，已在远端主机上逐段复现验证。
 
 修复：
 
@@ -566,7 +566,7 @@ derived  cpuPct rxRateBps txRateBps memPct swapPct gpuMemPct agentTs hostId
 | R-41 | P2 | `sub`（备注）只有前端 `maxlength=120`，后端无上限，绕过界面可写入超长文本 | 同上 add/update 分支 |
 | R-42 | P1 | 主机管理弹窗开着时，每个状态轮询都重建 `#hlist` 的 `innerHTML`：焦点被抢走、滚动位置重置、行内按钮在真实浏览器里难以稳定点击（自动化点击因元素引用频繁失效而失败） | 在真实浏览器中操作弹窗复现 |
 | R-43 | P2 | 删除主机只清 `config.json`，`state/` 下该主机的 `latest/meta/alerts/rollup` 文件永久残留，反复增删即堆积 | 实测 `state/` 21 个文件中有 11 个属于已删除主机 |
-| R-44 | P2 | `config.json` 里 `YOUR_HOST_ID` 的 `gateway` 服务指向远端不存在的路径（`/opt/your-app`、venv、logs 均为 NO，且无进程）；点「启动」会在服务器 `mkdir` 出垃圾目录。真实网关跑在本机 `YOUR_GATEWAY_PORT` | 只读探测远端目录与进程；本机进程表 |
+| R-44 | P2 | `config.json` 里 `gpu3090` 的 `gateway` 服务指向远端不存在的路径（`~/software/opensquilla`、venv、logs 均为 NO，且无进程）；点「启动」会在服务器 `mkdir` 出垃圾目录。真实网关跑在本机 `127.0.0.1:18791` | 只读探测远端目录与进程；本机进程表 |
 
 ### 11.2 对应需求与落地
 
@@ -608,7 +608,7 @@ derived  cpuPct rxRateBps txRateBps memPct swapPct gpuMemPct agentTs hostId
 
 ### 11.5 环境旁证：关于持续 502
 
-ServerPanel 由 `HttpListener` 直连回环端口，链路中不存在反向代理，进程不在时表现为「连接被拒绝」而**不会**产生 502。排查结论：502 来自本机 DemoApp 网关（`demo-worker.exe gateway run --port 18791 --listen 127.0.0.1`）在该时段的重启窗口，属会话链路，与本面板无关；面板当时的退出是 `-IdleSec` 空闲正常退出，`log/panel-run.log` 有 `PANEL-READY`/`PANEL-EXIT` 成对留痕，且巡检异常已有 try/catch 兜底记录。
+ServerPanel 由 `HttpListener` 直连回环端口，链路中不存在反向代理，进程不在时表现为「连接被拒绝」而**不会**产生 502。排查结论：502 来自本机 OpenSquilla 网关（`opensquilla-gateway.exe gateway run --port 18791 --listen 127.0.0.1`）在该时段的重启窗口，属会话链路，与本面板无关；面板当时的退出是 `-IdleSec` 空闲正常退出，`log/panel-run.log` 有 `PANEL-READY`/`PANEL-EXIT` 成对留痕，且巡检异常已有 try/catch 兜底记录。
 
 ---
 
@@ -719,7 +719,7 @@ ServerPanel 由 `HttpListener` 直连回环端口，链路中不存在反向代�
 
 | 编号 | 级别 | 问题 | 证据 |
 |---|---|---|---|
-| R-52 | P1 | 端到端回归把动作写进用户真实的 `actions.log`，一轮就上百条；而 `/api/audit` 只取末 80 条。结果：**跑一轮测试就能把用户的真实操作记录挤出可见窗口**，审计功能等于被自家测试顶掉 | 告警页实机文本：成排 `zzhanshutest1 host_update` / `YOUR_HOST_ID kill pid 1 已拒绝`，时间戳 09:50、09:55、09:56、09:57、09:59 对应五轮回归 |
+| R-52 | P1 | 端到端回归把动作写进用户真实的 `actions.log`，一轮就上百条；而 `/api/audit` 只取末 80 条。结果：**跑一轮测试就能把用户的真实操作记录挤出可见窗口**，审计功能等于被自家测试顶掉 | 告警页实机文本：成排 `zzhanshutest1 host_update` / `gpu3090 kill pid 1 已拒绝`，时间戳 09:50、09:55、09:56、09:57、09:59 对应五轮回归 |
 
 ### 14.2 对应需求与落地
 
@@ -825,7 +825,7 @@ ServerPanel 由 `HttpListener` 直连回环端口，链路中不存在反向代�
 - **DR-59** `syntax-check` 增加 `*.sh` 必须 LF 的字节级检查（失败时直接指向 `build/lf.ps1`）。
 - **DR-60** `meta.collectorHash`（上传时计算的 SHA256 前 12 位）→ `/api/status` 透传 → 健康卡片「采集器 xxxxxxxx」，让“我的改动生效了没”可一眼回答。
 - **DR-61** `ageSec` 为空时渲染 `—`。
-- **DR-62** E2E 的 `svc_log` 改绑真实存在的 `demo-inference`，不把测试绑在已知坏配置上（面板侧 20s 超时+如实报错的行为本身是正确的，未改）。
+- **DR-62** E2E 的 `svc_log` 改绑真实存在的 `ollama`，不把测试绑在已知坏配置上（面板侧 20s 超时+如实报错的行为本身是正确的，未改）。
 
 ### 16.3 新增门禁
 
@@ -926,3 +926,122 @@ ServerPanel 由 `HttpListener` 直连回环端口，链路中不存在反向代�
 ---
 
 本方案为产品设计参考，具体实施请结合实际数据与运行环境确认。
+## 19. v4.2 第九轮迭代（启动器解析期死亡）+ 死规则识别
+
+### 19.1 用户可见故障：打开 BAT 不弹网页（R-78，P1）
+
+现象：双击「启动-服务器管家v4.bat」后无任何窗口 —— 没有面板页、连就绪探针的红字诊断窗都没有；`log/panel-run.log` 无新记录，48732 不监听。
+
+定位链（每条都由观测排除，不是猜测）：
+1. 字节检查 BAT：CRLF=15、裸 LF=0、无 BOM → 「LF 行尾导致 cmd 误解析」被自己否掉；
+2. 原样字节复制到临时目录再跑：`cmd rc=255`、stderr 只有一句「此时不应有 is。」、stdout 为空 —— **整份 BAT 在 cmd 解析阶段就死了**；
+3. 最小复现：`if 0 neq 0 (` + `echo x (pwsh) is required.` 的多行块**必炸**（rc=255），而只含带圆括号/含 if 字样的注释行则正常 —— 定位到「echo 文案里的圆括号破坏 if 块的括号配对」，残余的 `is required.` 被当成命令，于是报「此时不应有 is。」。
+
+机制后果：解析期死亡发生在 `start … panel.ps1` **之前**，所以面板从未启动 → 无转录、无端口、无 Edge profile（实测 Edge 专属 profile 自 11-13 后没再被碰过）、探针也来不及触发。用户看到的就是「双击没反应」。
+
+根因归属：这是我们自己在「加就绪探针防静默失败」那次改动里引入的回归 —— 把 echo 文案写进了 `if (...)` 多行块并带了圆括号。修故障时制造了另一个故障，值得写进教训：**BAT 里的 echo 文案禁止出现圆括号（尤其在 if 块内）；多行 if 块尽量改 goto 结构**。
+
+DR-78 落地：
+- BAT 重写为 goto 结构（`if errorlevel 1 goto nopwsh`），echo 文案不再带任何圆括号，字节级写盘（CRLF、纯 ASCII）；
+- 新增 `build/test-launcher.ps1` 门禁（静态 + 功能双层）：
+  - 静态：纯 ASCII、CRLF 行尾、echo 行不得带圆括号；
+  - 功能：把 BAT 原样复制到临时目录跑一遍，要求 `cmd` 执行到底且 rc=0。复制到临时目录可避免真的拉起面板与探针（零副作用）；
+  - 反证有效：注入「if 块内 echo 带括号」的坏副本 → rc=255，门禁判 FAIL；真实文件 → PASS。
+- 全链路实证：修复后按双击方式执行 → panel 拉起、48732 监听、`boot ok`、Edge 应用模式窗口带着 `ServerPanelV4Edge` profile 真正开出（主进程 + 子进程组）。
+
+### 19.2 告警规则可信性：死规则识别（R-79，P1 潜在）
+
+原有缺陷：`Eval-Alerts` 里 `$v = $sc[$r.metric]; if ($null -eq $v) { continue }` 把「这台机器暂时没这个数据」和「指标名从来没出现过」混为一谈。指标名写错（或引用了未配置的 `service.xxx`）的规则将**永远不触发且毫无痕迹** —— 用户恰恰是靠告警发现过热/满盘的，静默失效比误报危险。
+
+DR-79 落地：
+- agent：`alertSt[rule]` 增加 `miss` 计数；`$sc.ContainsKey($r.metric)` 时清零，否则累加。连续 20 个样本仍取不到键才判死，避免刚起流时误报；落盘沿用既有 `alertSt` 通道。
+- panel：`/api/status` 每台主机增加 `deadRules`（id + miss）。注意 OrderedDictionary 必须**按键赋值**（`$e['deadRules'] = …`），点号赋值只改适配器成员，`ConvertTo-Json` 时会被吞（本仓库已两次踩到）。
+- 前端：告警规则表给死规则加红色 pill「不会触发·指标不存在」。
+- 双向验证（不猜）：① 现有 6 条真规则全部 `miss=0`、`deadRules` 为空（无假阳性）；② 注入故意写错指标名（`gpu.mem`，正确为 `gpu.memPct`）的探针规则，`miss` 从 1 累积到 24，`deadRules` 如实报出 `zz-typo:24`，6 条真规则始终为 0。验证完已还原 config.json。
+
+### 19.3 本轮工具链踩坑（都已进对应门禁/记忆）
+
+| 坑 | 表现 | 对策 |
+|---|---|---|
+| PowerShell 7 的 `Set-Content -Encoding UTF8` 会写 **BOM** | 用它改 `gate.ps1` 后中文注释变乱码、L91 字符串未终止，门禁整个跑不起来 | 改脚本一律 `[IO.File]::ReadAllText(..., UTF8-no-BOM)` + `WriteAllText(..., UTF8-no-BOM)`，并用 `git diff --stat` 验证只动目标行 |
+| `& cmd.exe /c xxx *> file` 或 `\| Out-Null` 在「BAT 会 start 子进程」的场景下挂死 | 底层是匿名管道，子进程继承管道写端永不关闭，读取端等不到 EOF，整道门卡满超时 | 门禁里用 `Start-Process`（不带任何 Redirect*）+ `WaitForExit(15000)` + 超时 Kill，只认 cmd 退出码 |
+| `-Wait` + `RedirectStandardOutput` 同样会挂 | 同上（句柄继承） | 同上 |
+| 父壳调用 `cmd /c start "" /b "" "x.bat"` | 参数结构非法，得出误导性错误 | 双击复现请用 `cmd.exe /c '完整路径'` 或 `Start-Process` |
+
+### 19.4 验证记录
+
+| 场景 | 结果 |
+|---|---|
+| BAT 反证（注入坏 echo） | rc=255 → 门禁 FAIL；真实 BAT → PASS（launcher 5 项） |
+| 双击式全链路 | panel 起 + 48732 监听 + boot ok + Edge 应用窗口开出 |
+| 死规则正向/反向 | 真规则 miss=0/deadRules 空；错名规则 miss=24 被点名 |
+| 全量 `gate.ps1` | **13/13 pass，exit=0**（新增 launcher；syntax 31 文件 · hosts 40 · e2e 44 · p0 12 · jsonfold 10 · hygiene 5 · collect 8 · loopback 11 · conns 5 · live 9 · chart 596→10 · pill 15） |
+
+---
+
+
+本方案为产品设计参考，具体实施请结合实际数据与运行环境确认。
+## 20. R-80：进程表补 GPU 列（2026-11-20，用户反馈「进程中只显示 CPU 不显示 GPU」）
+
+### 20.1 用户需求（原文）
+
+> 在你做的界面中 进程中只显示CPU占用率 不显示GPU占用率
+
+### 20.2 先查证一个事实：NVIDIA 不暴露单进程算力利用率
+
+实测驱动 580.178.04：`nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid,utilization.gpu` 直接报
+`Field "utilization.gpu" is not a valid field to query`。即单进程的「GPU 利用率」在 nvidia-smi CLI 口径下不存在，
+只能用显存口径表达单进程的 GPU 占用。这是诚实标注而非偷懒——把不可得的指标伪装成可得，比不显示更糟。
+
+### 20.3 数据链路（采集端已有大部分数据，只是没并进进程表）
+
+`gpu_apps_all`（nvidia-smi --query-compute-apps）原本只挂在各 GPU 卡对象下给「占显存的进程」卡片用，
+主进程表 `procs[]` 完全不知道 GPU。实现：
+
+1. **collector.sh**：jq 组装新增 `--argjson gapps`，把 compute-apps 转成 `{pid: memMiB}` 映射，
+   对 procs.list 逐条注入 `gpuMemMiB`（pid 不匹配则为 null）。schema 因此 sp1 → sp2。
+2. **agent.ps1**：schema 白名单放宽为 `@('sp1','sp2')`——升级窗口期新 agent 遇到旧 collector 不被误杀。
+3. **app.js**：新增 `gpuTotMap()`（从 SNAP.gpus 各卡 procs 反查 pid→总量）与 `gpuCell()`，
+   渲染为 `354M (1.4%)`；新列可排序（sortK=gpuMemMiB，null 值走 localeCompare 不抛错）；
+   无 GPU 数据的进程显示中性「—」而不是 0——「没有数据」与「占 0」必须可区分。
+4. **dashboard.html**：表头加「GPU·显存」，title 里写明为何用显存口径。
+
+### 20.4 门禁同步与新增
+
+- `check-live.ps1`：schema 断言改 sp2，并新增「procs 已并入 GPU 显存(gpuMemMiB)」实时比对——
+  取 gpus[].procs 的 pid 与数值，逐条要求能在 procs 中找到相等值，防界面新列永远空转；
+- `test-collector-errors.ps1`：schema 断言改 sp2，新增真机金丝雀（单周期：占显存进程的 pid 必须出现在 procs 且 gpuMemMiB 相等）；
+- `test.ps1`：schema 断言改 sp2。
+
+### 20.5 本轮顺带修的门禁脆弱点（R-81）
+
+`test-hosts.ps1` 第 9 节写死「主机数回到基线 2」，且第 10 节硬编码依赖真实存在的 `second` 主机。
+用户上一版已把该禁用备用机从 config 删除，导致：基线断言误报 FAIL、`second` 相关断言空转失真。
+修复：基线改为运行时动态读取；第 10 节改用自足夹具（zzactivechk 自增自删）。
+教训：**门禁自身的假设也会腐烂**——凡引用「用户可能改过的运营数据」的断言，都不能写死。
+
+### 20.6 实测证据
+
+- 真机单周期金丝雀：`PASS 单进程显存已并入 procs(pid+数值匹配)`；
+- live 链路：`meta.collectorHash=fe5df9a6200e` 与工作区一致，schema=sp2，6/6 占显存进程并入一致；
+- 浏览器实测进程页：表头含「GPU·显存」，训练进程行显示 `354M (1.4%)`，非 GPU 进程显示「—」；
+- 全量门禁 13/13 pass exit=0。
+
+## 21. R-82：进程表 CPU% 口径说明（2026-11-20，用户反馈「两个进程都显示 100%，是不是有问题」）
+
+用户疑问属实但结论相反：**不是缺陷，是与 top/htop 完全一致的业界口径**。
+
+### 21.1 事实核查
+
+- `collector.sh` 的进程 CPU 直接取 `ps -eo ... pcpu`——Linux ps/top 的约定是**一颗逻辑核吃满记为 100%**，多线程进程会显示 >100%（如 4 线程各跑满 → 约 400%）。
+- 本机实测：20 逻辑核、负载 6.58/6.82/7.01；同时有 6 个 joblib/loky 工作进程各显示 99.5%、99.4%、99.3%、99.1%、98.4%、98.3%——每个 worker 各占满一颗核，负载合计恰好≈6.5，完全吻合。
+- 对照口径：`derived.cpuPct` 是按全部 20 核归一的整机占用（当前 31%），两套口径并存、互不相同是设计使然。
+
+### 21.2 修复
+
+`dashboard.html` 进程表「CPU%」表头补 title tooltip，明确写出「单核为 100%、多线程可 >100%、本机 20 核满载时上限 2000%」，
+避免把「一核吃满」误读成「整机打满」。保持与 top 一致不变（若改全机口径反而破坏与 `top`/`htop` 的对照）。
+
+### 21.3 教训
+
+多核机器上「两个 100%」完全正常；排查这类疑问时应先看 `nproc`、`load average` 与各进程值之和，而不是先怀疑面板。

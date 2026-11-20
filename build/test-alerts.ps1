@@ -52,8 +52,8 @@ try {
   if ($resolved) { 'PASS  阈值恢复正常后告警自动解除' }
   else {
     'FAIL  告警未解除 —— 现场:'
-    '  state/alerts: ' + (Get-Content (Join-Path $root 'state\alerts-YOUR_HOST_ID.json') -Raw -Encoding UTF8)
-    '  meta:         ' + (Get-Content (Join-Path $root 'state\meta-YOUR_HOST_ID.json') -Raw -Encoding UTF8)
+    '  state/alerts: ' + (Get-Content (Join-Path $root 'state\alerts-gpu3090.json') -Raw -Encoding UTF8)
+    '  meta:         ' + (Get-Content (Join-Path $root 'state\meta-gpu3090.json') -Raw -Encoding UTF8)
   }
   $al2 = Invoke-RestMethod "$B/api/alerts" -Headers @{ 'X-Panel-Token' = "$tk2" } -TimeoutSec 10
   if (@($al2.events | Where-Object { $_.state -eq 'resolved' }).Count -ge 1) { 'PASS  alerts.log 记录了 resolved' }

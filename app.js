@@ -161,7 +161,7 @@ function filtered() {
   const f = ($('pFilter').value || '').trim().toLowerCase();
   let ps = procs();
   if (f) ps = ps.filter(p => ((p.cmd || '') + ' ' + (p.user || '') + ' ' + p.pid).toLowerCase().includes(f));
-  ps = ps.slice().sort((a, b) => { const x = a[sortK], y = b[sortK]; const r = (typeof x === 'number' && typeof y === 'number') ? x - y : String(x).localeCompare(String(y)); return r * (sortAsc ? 1 : -1); });
+  ps = ps.slice().sort((a, b) => { const x = a[sortK], y = b[sortK]; const r = (typeof x === 'number' && typeof y === 'number') ? x - y : String(x ?? '').localeCompare(String(y ?? '')); return r * (sortAsc ? 1 : -1); });
   return ps;
 }
 function cmdCell(p) {
@@ -170,19 +170,35 @@ function cmdCell(p) {
   const b = basename(full);
   return '<span class="cmd" title="' + esc(full) + '"><span class="base">' + esc(b.base) + '</span> ' + esc(b.args.slice(0, 160)) + '</span>';
 }
+/* R-80：单进程的 GPU 口径只有显存。NVIDIA 驱动不向 nvidia-smi CLI 暴露单进程算力利用率
+   (实测 driver 580.178.04：query-compute-apps 加任何利用率字段都报 "not a valid field")，
+   因此用「该进程显存 / 所在卡总量」作为单进程的 GPU 占用率；pid→总量从 SNAP.gpus 的分组反查 */
+function gpuTotMap() {
+  const m = {};
+  for (const g of A(SNAP && SNAP.gpus)) if (g.memTotalMiB != null) for (const p of A(g.procs)) m[p.pid] = g.memTotalMiB;
+  return m;
+}
+function gpuCell(p, tot) {
+  const mb = num(p.gpuMemMiB, 0);
+  if (mb == null) return '<span class="mut">—</span>';
+  const t = tot[p.pid];
+  return esc(mb + 'M') + (t ? ' <small>(' + num(mb / t * 100, 1) + '%)</small>' : '');
+}
 function renderProcs() {
   const ps = filtered();
   const tot = (SNAP && SNAP.procTotal) || procs().length;
   const shown = procs().length;
   const pages = Math.max(1, Math.ceil(ps.length / PAGE));
   if (page >= pages) page = pages - 1; if (page < 0) page = 0;
+  const gtot = gpuTotMap();
   $('pMeta').textContent = '匹配 ' + ps.length + (tot > shown ? ' · 已截断 展示前 ' + shown + ' / 共 ' + tot : ' · 共 ' + tot);
   const rows = ps.slice(page * PAGE, page * PAGE + PAGE).map(p =>
-    '<tr data-pid="' + p.pid + '"><td class="num">' + p.pid + '</td><td>' + esc(p.user) + '</td><td class="num">' + num(p.pcpu, 1) + '</td><td class="num">' + num(p.pmem, 1) +
+    '<tr data-pid="' + p.pid + '"><td class="num">' + p.pid + '</td><td>' + esc(p.user) + '</td><td class="num">' + num(p.pcpu, 1) + '</td><td class="num">' + gpuCell(p, gtot) +
+    '</td><td class="num">' + num(p.pmem, 1) +
     '</td><td class="num">' + fmtUp(p.etimes) + '</td><td>' + cmdCell(p) + '</td>' +
     '<td class="ops"><button class="mini" data-kill="' + p.pid + '" aria-label="结束进程 ' + p.pid + '">' + icon('kill') + '结束</button> <button class="mini danger" data-kill9="' + p.pid + '" aria-label="强杀进程 ' + p.pid + '" title="强制结束（SIGKILL）">' + icon('kill9') + '</button></td></tr>'
   ).join('');
-  $('pTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="7">' + emptyHtml('none', '没有匹配的进程', '调整过滤条件试试') + '</td></tr>';
+  $('pTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="8">' + emptyHtml('none', '没有匹配的进程', '调整过滤条件试试') + '</td></tr>';
   $('pgInfo').textContent = '第 ' + (page + 1) + ' / ' + pages + ' 页';
   document.querySelectorAll('#pTable th').forEach(th => th.classList.toggle('sorted', th.dataset.k === sortK));
 }

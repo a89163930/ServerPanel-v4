@@ -1,7 +1,7 @@
 export LC_ALL=C
 export COLUMNS=4096
-UNITS="demo-inference demo-worker"
-PATTERNS="your-service-pattern"
+UNITS="ollama opensquilla-gateway"
+PATTERNS="opensquilla gateway run"
 
 str() { if [ -z "$1" ]; then echo "null"; else printf '%s' "$1" | jq -Rs .; fi; }
 

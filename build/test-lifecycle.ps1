@@ -31,5 +31,5 @@ Start-Sleep -Seconds 3
 $end = Snap '全杀后 '
 if ($end.Count -eq 0) { 'PASS  面板关闭后不留任何 pwsh/ssh 残留' } else { 'FAIL  仍有残留' }
 "--- 远端是否残留采集循环 ---"
-$rc = ((& ssh -o BatchMode=yes YOUR_HOST_ALIAS "pgrep -fc 'base64 -d' || echo 0") | Out-String).Trim()
+$rc = ((& ssh -o BatchMode=yes Linux_3090 "pgrep -fc 'base64 -d' || echo 0") | Out-String).Trim()
 "远端匹配 base64 -d 的进程数(含本次 ssh 自身) = $rc"

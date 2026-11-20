@@ -37,4 +37,10 @@ First public release.
 
 **Tests**
 
-- `build/gate.ps1` runs all twelve gates in one pass and distinguishes `FAIL` from `BLOCKED` (missing dependency, exit code 2) so partial verification can't masquerade as success.
+- `build/gate.ps1` runs all thirteen gates in one pass and distinguishes `FAIL` from `BLOCKED` (missing dependency, exit code 2) so partial verification can't masquerade as success.
+
+**Post-release hardening & features (same 4.2 line)**
+
+- **Launcher fix + regression gate (DR-79/R-82 series).** The shipped BAT died at cmd parse time because an echo line inside an `if (...)` block contained parentheses — every "double-click does nothing" case since then traces back to parse-time death, with no side effects to observe. `test-launcher.ps1` now executes a verbatim copy of the BAT and asserts rc=0; the gate suite count went from twelve to thirteen.
+- **Per-process GPU column (schema sp1 → sp2).** `collector.sh` merges nvidia-smi compute-app memory into `procs[].gpuMemMiB`; the process table shows each process's VRAM share (e.g. `354M (1.4%)`). Per-process SM utilization is not exposed by NVIDIA's CLI, and the header states this.
+- **Gate assumptions hardened.** The hosts suite no longer hardcodes a host count (a user deleting their own host used to read as FAIL) and its active-host migration test is self-contained; the conns truth-table and archive canary grew to the current schemas.

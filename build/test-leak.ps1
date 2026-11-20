@@ -7,7 +7,7 @@ $safe = [regex]::Escape($root)
 function RemoteLoops {
   $q = "pgrep -fx 'bash -s -- 3' | tr '\n' ' '; echo"
   $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($q))
-  $r = ((& ssh -o BatchMode=yes -o ConnectTimeout=10 YOUR_HOST_ALIAS "echo $b64 | base64 -d | bash") | Out-String).Trim()
+  $r = ((& ssh -o BatchMode=yes -o ConnectTimeout=10 Linux_3090 "echo $b64 | base64 -d | bash") | Out-String).Trim()
   return @($r -split '\s+' | Where-Object { $_ -match '^\d+$' })
 }
 

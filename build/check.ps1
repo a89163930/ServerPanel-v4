@@ -28,7 +28,7 @@ $raw = [IO.File]::ReadAllText($cp) -replace "`r`n", "`n"
 $b64 = [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($raw))
 $psi = [Diagnostics.ProcessStartInfo]::new()
 $psi.FileName = 'ssh'
-$psi.Arguments = "-o BatchMode=yes -o ConnectTimeout=8 YOUR_HOST_ALIAS ""echo $b64 | base64 -d | bash -n"""
+$psi.Arguments = "-o BatchMode=yes -o ConnectTimeout=8 Linux_3090 ""echo $b64 | base64 -d | bash -n"""
 $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.UseShellExecute = $false
 $p = [Diagnostics.Process]::Start($psi)
 $so = $p.StandardOutput.ReadToEnd(); $se = $p.StandardError.ReadToEnd(); $p.WaitForExit()

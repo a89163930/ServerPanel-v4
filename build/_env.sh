@@ -1,3 +1,3 @@
 export PANEL_ONCE=1
-export PANEL_UNITS="demo-inference cron"
-export PANEL_PATTERNS="your-service-pattern"
+export PANEL_UNITS="ollama smartd"
+export PANEL_PATTERNS="opensquilla gateway run"

@@ -1,4 +1,4 @@
-$d = 'C:\path\to\ServerPanel-v4\state\actions'
+$d = 'K:\Opensquilla\ServerPanel-v4\state\actions'
 New-Item -ItemType Directory -Force -Path $d | Out-Null
 $p = Join-Path $d 't1.json'
 $t = Join-Path $d 't1.json.tmpX'
