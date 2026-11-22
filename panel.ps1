@@ -56,7 +56,14 @@ try {
 $cfg = Read-JsonFile (Join-Path $Root 'config.json') $null
 if (-not $cfg) { Write-Host 'config.json 读取失败' -ForegroundColor Red; exit 1 }
 $Port = [int]$cfg.port; if ($Port -lt 1) { $Port = 48732 }
-$idleLimit = [int]$cfg.idleExitSec; if ($idleLimit -lt 10) { $idleLimit = 90 }
+# R-85（用户定夺，2026-11-22）：默认语义改为「采集活着就不退出」。
+# idleLimit 现在表示「采集全部停摆后，纯空闲多少秒才退出」；未配置即 -1 常驻。
+# config 里显式写了 >=0 秒数仍按旧式纯空闲语义尊重；命令行 -IdleSec 显式覆盖一切（-1=常驻）。
+$idleLimit = -1
+if ($cfg.PSObject.Properties['idleExitSec'] -and $null -ne $cfg.idleExitSec) {
+  $v = 0
+  if ([int]::TryParse("" + $cfg.idleExitSec, [ref]$v)) { $idleLimit = $v }
+}
 if ($PSBoundParameters.ContainsKey('IdleSec')) { $idleLimit = $IdleSec }   # -IdleSec -1 => 常驻
 $Token = [guid]::NewGuid().ToString('N')
 $hosts = @($cfg.hosts | Where-Object { $_.enabled -ne $false })
@@ -348,7 +355,11 @@ while ($listener.IsListening) {
         $running = @(Get-ChildItem $actionDir -Filter '*.running' -ErrorAction SilentlyContinue | Where-Object {
           if (((Get-Date) - $_.LastWriteTime).TotalSeconds -gt 120) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue; $false } else { $true }
         })
-        if ($running.Count -eq 0) { $script:exitWhy = 'idle'; $stopping = $true; break }
+        if ($running.Count -eq 0) {
+          # R-85：只要还有主机在正常采集就不算空闲——数据还在流就说明它还需要被记录，不能收摊
+          $collecting = @($hosts | ForEach-Object { $m = Get-Meta $_.id; if ($m -and $m.running -and $null -ne $m.ageSec -and [int]$m.ageSec -lt 30) { $true } })
+          if ($collecting.Count -eq 0) { $script:exitWhy = 'idle'; $stopping = $true; break }
+        }
       }
     } catch {
       # 防护：巡检异常不允许静默杀死整个面板——留痕后继续（此前出现过一次无痕迹退出，无法定位）

@@ -30,7 +30,7 @@ Windows 侧的 Linux GPU 服务器监控面板。PowerShell 7 后端 + 原生 HT
 
 ## config.json 字段
 
-- `port` / `idleExitSec` / `activeHost` / `sshOpts`
+- `port` / `activeHost` / `sshOpts`（`idleExitSec` 可选：给出秒数=采集全停后纯空闲多少秒退出，缺省=采集活着就不退出常驻）
 - `hosts[]`：`id` `label` `sub` `sshHost`(SSH 别名) `intervalSec` `historyEverySamples` `enabled` `services[]`
   - `services[]`：`id` `kind`(systemd|pattern) `unit`/`pattern` `label` `desc` `warnIfActive` `allowEnable` `confirmStop` `startCmd`/`stopCmd`/`logCmd`
 - `denyKill`：`pids[]` `userMatch[]` `cmdMatch[]`（kill 保护名单）

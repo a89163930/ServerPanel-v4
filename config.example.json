@@ -1,6 +1,6 @@
 {
   "port": 48732,
-  "idleExitSec": 90,
+  "idleExitSec": -1,
   "activeHost": "YOUR_HOST_ID",
   "sshOpts": [
     "-o",
