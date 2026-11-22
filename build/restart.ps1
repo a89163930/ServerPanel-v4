@@ -65,7 +65,7 @@ for ($i = 0; $i -lt 30; $i++) {
   try { $servedPid = [int](('' + (Get-Content (Join-Path $root 'state\hub.json') -Raw -Encoding UTF8 | ConvertFrom-Json).pid)) } catch {}
   break
 }
-if (-not $served) { "FAIL 端口 $port 无响应，面板没起来（看 log/panel-run.log）"; exit 1 }
+if (-not $served) { "FAIL 端口 $port 无响应，面板没起来（看 log\panel-run*.log，每实例一份）"; exit 1 }
 if ($oldPids -contains $servedPid) { "FAIL 仍在为旧 pid=$servedPid 服务，等于没重启"; exit 1 }
 if ($servedPid -ne $p.Id) { "WARN 服务者 pid=$servedPid 与本次启动的 pid=$($p.Id) 不同（可能有第二个实例接管，请核对）"; exit 1 }
 "OK 已确认由新面板 pid=$servedPid 服务 http://127.0.0.1:$port"
