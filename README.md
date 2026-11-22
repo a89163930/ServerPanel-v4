@@ -1,5 +1,7 @@
 # 服务器管家 v4 (ServerPanel v4)
 
+**当前版本：4.3**（2026-11-22，R-83~R-89 长期加固系列；发布史见发布仓库 CHANGELOG）
+
 Windows 侧的 Linux GPU 服务器监控面板。PowerShell 7 后端 + 原生 HTML/JS 前端 + uPlot 曲线，
 通过常驻 SSH 流采集远端指标，界面只读本地缓存，动作走独立子进程异步执行。
 

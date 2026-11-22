@@ -568,7 +568,7 @@ while ($listener.IsListening) {
         })
         # DR-26：下发告警规则，前端才能渲染规则表/阈值参考带/解释预警
         $alertsOut = @($cfg.alerts | ForEach-Object { [ordered]@{ id = $_.id; metric = $_.metric; op = $_.op; threshold = $_.threshold; level = $_.level; text = $_.text; forSec = $_.forSec; cooldownSec = $_.cooldownSec } })
-        Send-Json $res @{ ok = $true; token = $Token; port = $Port; version = '4.1'; active = $cfg.activeHost; idleExitSec = $idleLimit; hosts = $hostsOut; alerts = $alertsOut }
+        Send-Json $res @{ ok = $true; token = $Token; port = $Port; version = '4.3'; active = $cfg.activeHost; idleExitSec = $idleLimit; hosts = $hostsOut; alerts = $alertsOut }
         continue
       }
       '/api/status' {

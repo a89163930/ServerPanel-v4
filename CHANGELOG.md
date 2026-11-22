@@ -2,6 +2,27 @@
 
 Versions follow `MAJOR.MINOR`. This project was developed privately up to 4.2; the history below starts at the first public release.
 
+## 4.3 — 2026-11-22
+
+Post-release hardening over five internal rounds (R-83…R-89).
+
+**Reliability**
+
+- **Idle semantics change (R-85).** The default is now "stay alive while collecting": the hub exits only after *all* collection has stopped for the configured idle window; with no config it stays resident. `-IdleSec`, an explicit `idleExitSec`, or `SP_IDLE=-1` via the launcher still work as before.
+- **Dual-launch guard (R-84).** A kernel mutex (`Global\ServerPanelV4-<port>`) rejects concurrent launches before any agent starts; a crashed predecessor's abandoned lock is taken over automatically — no doubled SSH sessions, no doubled state writes.
+- **Sleep/resume handling (R-83).** A wall-clock gap (sleep/hibernate wake) resets the idle timer instead of being judged as idle; every exit leaves a reason line in the log.
+- **Cross-generation orphan cleanup (R-88).** Before relaunching an agent, same-host orphan agents from a previous hub generation are killed first, so samples and SSH sessions never double up after a restart.
+
+**Launcher & windows**
+
+- **Blank Edge window fix (R-86).** A dirty dedicated profile made `--app` start a whole stack without creating the initial window; retries now rebuild the profile, and window identity is matched by title only.
+- **Double-click hardening (R-87/R-89).** Windows open with extensions disabled and success requires a real titled panel window. If you close the app window while collection continues, the next launch reopens one window instead of exiting silently — always exactly one visible panel window.
+- **Warm profile reuse (R-89a).** The dedicated Edge profile is reused by default (fast start) and only rebuilt when an open attempt fails.
+
+**Diagnostics**
+
+- Per-instance transcripts (`log\panel-run.<pid>.log`) so concurrent launches never interleave writes; lifecycle markers still go to `log\panel-run.log`.
+
 ## 4.2 — 2026-11-20
 
 First public release.
