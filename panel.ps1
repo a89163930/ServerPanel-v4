@@ -73,6 +73,21 @@ $auditLog = Join-Path $Root 'actions.log'
 # P0-4：启动时清一次孤儿 .running（上一代被强杀残留，mtime 超 120s），避免面板永不空闲退出
 Get-ChildItem $actionDir -Filter '*.running' -ErrorAction SilentlyContinue | Where-Object { ((Get-Date) - $_.LastWriteTime).TotalSeconds -gt 120 } | Remove-Item -Force -ErrorAction SilentlyContinue
 
+# R-86：定位「我们自己的」Edge 面板窗口。只认「标题是面板页面」的顶层窗口。
+# 早期版本用「命令行带 ServerPanelV4Edge」做特征，实测脏会话下 --app 会起一整个栈却只建出
+# 标题为空的空白窗，句柄非空+命令行特征把它误判成有效窗口，重试逻辑永远轮不到执行。
+# 纯标题口径与外部诊断脚本完全一致，两侧结论不会打架；误伤用户日常 Edge 的可能性也归零。
+# 注意必须定义在互斥体分支之前——PowerShell 函数不跨执行顺序提升，晚于调用点定义等于不存在。
+function Find-PanelEdgeWindow {
+  try { Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop | Out-Null } catch {}
+  try {
+    $w = @(Get-Process msedge -ErrorAction SilentlyContinue | Where-Object {
+      $_.MainWindowHandle -ne 0 -and (('' + $_.MainWindowTitle) -match '服务器管家 v4|ServerPanel') })
+    if ($w.Count -gt 0) { return $w[0] }
+  } catch {}
+  return $null
+}
+
 # R-84：双启动防护改走内核互斥体，不依赖「端口占用」。实测 Windows http.sys 允许两个 HttpListener
 # 同时注册同一前址（新实例照样 PANEL-READY），旧路径“绑定失败→探测已有实例”在本机永不触发，
 # 双实例会双写 hub.json、双起 agent（SSH 会话翻倍）。命名互斥体随进程死亡由内核自动释放，
@@ -80,10 +95,13 @@ Get-ChildItem $actionDir -Filter '*.running' -ErrorAction SilentlyContinue | Whe
 try {
   $panelMutex = [System.Threading.Mutex]::new($false, "Global\ServerPanelV4-$Port")
   if (-not $panelMutex.WaitOne(0)) {        # 返回 false = 已有活实例持锁 => 本实例就是重复启动
-    $edge2 = @("$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if ($edge2) { Start-Process $edge2 -ArgumentList "--app=http://127.0.0.1:$Port/", '--window-size=1320,860', "--user-data-dir=$env:LOCALAPPDATA\ServerPanelV4Edge", '--no-first-run' | Out-Null }
-    elseif (-not $NoBrowser) { Start-Process "http://127.0.0.1:$Port" | Out-Null }
-    Write-Output ("PANEL-ALREADY-RUNNING http://127.0.0.1:$Port (另一实例仍在运行，本实例退出)")
+    # R-86：连续两次启动（如双击两下 BAT、或两秒内的重复拉起）时，旧逻辑会给现有面板再开第二个 --app
+    # 窗口；但专用 profile 正被第一个实例的 Edge 持有，第二次 --app 会退化成一个空白 Edge 窗——
+    # 用户看到的就是「弹出一个服务器管家 + 一个空白的 Edge」。改为只把现有面板窗置前，静默不叠窗。
+    $existingWin = Find-PanelEdgeWindow
+    $focused = $false
+    if ($existingWin) { try { [Microsoft.VisualBasic.Interaction]::AppActivate([int]$existingWin.Id); $focused = $true } catch {} }
+    Write-Output ("PANEL-ALREADY-RUNNING http://127.0.0.1:$Port DUP-FOCUS:" + $(if ($focused) { 'YES' } else { 'NO' }) + " (另一实例仍在运行" + $(if ($focused) { '，已置前台' } else { '，本实例静默退出' }) + ")")
     exit 0
   }
   $script:mutexHeld = $true
@@ -227,11 +245,46 @@ if ($TestOnce) {
 }
 
 # ---------- 打开独立窗口（Edge 应用模式） ----------
+# R-86b：清掉专用 profile 的全部残留进程与目录数据。该目录是本工具的可弃隔离 profile
+# （%LOCALAPPDATA%\ServerPanelV4Edge，页面上没有任何需要跨次保留的状态），上代强杀留下的
+# 脏会话数据正是「--app 起一栈却只剩空白窗」的根因——每代开窗前整体清空，从根上消灭该形态。
+# 只在本 profile 无存活进程后删除，不会波及用户日常浏览器（那是另一个 user-data-dir）。
+function Reset-PanelEdgeProfile {
+  try {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') } | ForEach-Object { try { & taskkill.exe /T /F /PID $_.ProcessId 2>&1 | Out-Null } catch {} }
+    Start-Sleep -Milliseconds 500
+    if (-not ((Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') }))) {
+      $prof = "$env:LOCALAPPDATA\ServerPanelV4Edge"
+      if (Test-Path -LiteralPath $prof) { Remove-Item -LiteralPath $prof -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+  } catch {}
+}
+# R-86a：若上一代会话残留的面板窗口还在桌面（或重复实例撞见），先聚焦它，不叠开新窗
+# （旧逻辑会为重复启动再开第二个同样窗口，且专用 profile 被占时退化成「空白 Edge 窗」）。
 function Open-PanelWindow([string]$Url) {
+  $hits = Find-PanelEdgeWindow
+  if ($hits) { try { [Microsoft.VisualBasic.Interaction]::AppActivate([int]$hits.Id); return } catch {} }
   $edge = @("$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
-  if ($edge) {
+  if (-not $edge) { Start-Process $Url | Out-Null; return }
+  # R-86c：每代都从「干净 profile」起窗（Reset-PanelEdgeProfile 先清残留再开），从根上消灭脏会话
+  # 建不出初始窗口的空白形态；再用「--app 是否被接受」（进程命令行出现 --app=URL + 专用 profile）验证；
+  # 两次都失败则兑底用默认浏览器打开——保证用户双击后每次都看得见面板。
+  foreach ($attempt in 1..2) {
+    Write-Output "WIN-OPEN attempt=$attempt"
+    Reset-PanelEdgeProfile
     Start-Process $edge -ArgumentList "--app=$Url/", "--window-size=1320,860", "--window-position=60,40", "--user-data-dir=$env:LOCALAPPDATA\ServerPanelV4Edge", '--no-first-run', '--disable-features=Translate' | Out-Null
-  } else { Start-Process $Url | Out-Null }
+    $appPat = [regex]::Escape("--app=$Url")
+    $waited = 0
+    while ($waited -lt 6000) {
+      Start-Sleep -Milliseconds 400
+      $accepted = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -match $appPat) -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') }).Count
+      if ($accepted -gt 0) { Write-Output 'WIN-OPEN ok'; return }
+      $waited += 400
+    }
+    Write-Output "WIN-OPEN fail attempt=$attempt"
+    try { Add-Content -LiteralPath (Join-Path $Root 'log\_winlog.txt') -Value ((Get-Date).ToString('HH:mm:ss')) -Encoding utf8 } catch {}
+  }
+  Start-Process $Url | Out-Null
 }
 
 # ---------- 监听 ----------
@@ -250,8 +303,9 @@ try {
     try { $existing = Invoke-RestMethod "http://127.0.0.1:$Port/api/boot" -TimeoutSec 4 } catch {}
     if ($existing -and $existing.ok -and [int]$existing.port -eq $Port) {
       Stop-Agents   # 杀掉本实例刚起的 agent，避免双代理并发覆写同一份 state
-      if (-not $NoBrowser) { Open-PanelWindow "http://127.0.0.1:$Port" }
-      Write-Output ("PANEL-ALREADY-RUNNING http://127.0.0.1:$Port" + $(if ($NoBrowser) { ' (已有面板在跑，本实例退出)' } else { ' (已为现有面板打开窗口)' }))
+      # R-86：此路径也是「重复启动」，与互斥体分支一致——只聚焦现有面板窗，不开第二个
+      if (-not $NoBrowser) { $fw = Find-PanelEdgeWindow; if ($fw) { try { [Microsoft.VisualBasic.Interaction]::AppActivate([int]$fw.Id) } catch {} } }
+      Write-Output ("PANEL-ALREADY-RUNNING http://127.0.0.1:$Port" + $(if ($NoBrowser) { ' (已有面板在跑，本实例退出)' } else { ' (已聚焦现有面板，本实例退出)' }))
       exit 0
     }
     Write-Host "端口 $Port 监听失败：$_" -ForegroundColor Red; Stop-Agents; exit 1
