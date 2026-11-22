@@ -105,6 +105,88 @@ function Find-PanelEdgeWindowFast {
   } catch {}
   return $null
 }
+# R-88b：归属版。必须在「决定要不要新起一个 --app 窗」时用它——只认命令行带专用 profile
+# 的顶层窗。否则用户日常 Edge 里恰好开着同名页面的旧标签页（例如上次兜底用默认浏览器打开
+# 留下的）会被误认为“已有面板窗”，导致专用窗口永远不被创建、用户看到的始终是旧标签页。
+# 单进程 CIM 查询很快（~百毫秒），带两次重试抗高负载抖动。
+function Find-PanelEdgeWindowOwned {
+  foreach ($try in 1..3) {
+    try {
+      $w = @(Get-Process msedge -ErrorAction SilentlyContinue | Where-Object {
+        $_.MainWindowHandle -ne 0 -and (('' + $_.MainWindowTitle) -match '服务器管家 v4|ServerPanel') })
+      foreach ($p in $w) {
+        try {
+          $cl = '' + (Get-CimInstance Win32_Process -Filter "ProcessId=$($p.Id)" -ErrorAction SilentlyContinue).CommandLine
+          if ($cl -match 'ServerPanelV4Edge') { return $p }
+        } catch {}
+      }
+    } catch {}
+    Start-Sleep -Milliseconds 350
+  }
+  return $null
+}
+
+# ---------- 打开独立窗口（Edge 应用模式） ----------
+# 注意：本块必须整体定义在下方互斥体分支之前——PowerShell 函数不跨执行顺序提升，
+# 晚于调用点定义等于不存在（R-89b 起拒绝分支也要调 Open-PanelWindow 补开窗口）。
+# R-89a：Reset-PanelEdgeProfile 只在「起窗失败后的重试换代」时调用，不再每次开窗前无条件清。
+# 该目录是本工具的可弃隔离 profile（%LOCALAPPDATA%\ServerPanelV4Edge，页面上没有任何需要跨次
+# 保留的状态），但把 profile 反复删除重建会让 Edge 每次都从零初始化一套全新 user-data-dir
+# （无缓存/无组件），实测冷启动要几十秒，期间窗口以「URL 主机名 + 转圈」的加载态出现在桌面，
+# 用户以为坏了。上代强杀留下的脏会话数据是「--app 起一栈却只剩空白窗」的根因，只在重试时清，
+# 从根上消灭该形态又不牺牲常态启动速度。只在本 profile 无存活进程后删除，不波及用户日常浏览器。
+function Reset-PanelEdgeProfile {
+  try {
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') } | ForEach-Object { try { & taskkill.exe /T /F /PID $_.ProcessId 2>&1 | Out-Null } catch {} }
+    Start-Sleep -Milliseconds 500
+    if (-not ((Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') }))) {
+      $prof = "$env:LOCALAPPDATA\ServerPanelV4Edge"
+      if (Test-Path -LiteralPath $prof) { Remove-Item -LiteralPath $prof -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+  } catch {}
+}
+# R-86a：若上一代会话残留的面板窗口还在桌面（或重复实例撞见），先聚焦它，不叠开新窗
+# （旧逻辑会为重复启动再开第二个同样窗口，且专用 profile 被占时退化成「空白 Edge 窗」）。
+function Open-PanelWindow([string]$Url) {
+  # R-88b：认「我们自己的」窗口必须走归属版，不能只看标题——日常 Edge 里的同名旧标签页会骗过它。
+  $hits = Find-PanelEdgeWindowOwned
+  if ($hits) { try { [Microsoft.VisualBasic.Interaction]::AppActivate([int]$hits.Id); return } catch {} }
+  $edge = @("$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $edge) { Start-Process $Url | Out-Null; return }
+  # R-86c：每代都从「干净 profile」起窗（Reset-PanelEdgeProfile 先清残留再开），从根上消灭脏会话
+  # 建不出初始窗口的空白形态；再用「--app 是否被接受」（进程命令行出现 --app=URL + 专用 profile）验证；
+  # 两次都失败则兑底用默认浏览器打开——保证用户双击后每次都看得见面板。
+  # R-87d：一律禁用扩展——--app 面板页不需要任何扩展，且专用 profile 会被 Edge 预装组件复制进
+  # 一整盒扩展（如 Zotero/Scholarscope/Forest 等），个别扩展会在启动瞬间抢占新标签/改写窗口标题，
+  # 是「起了栈却迟迟建不出带标题的面板窗」的候选干扰源之一。关掉它们，窗口状态与标题才可预期。
+  # R-89a：常态（attempt=1）不再预先 wipe profile——每代从零重建 user-data-dir 要几十秒，期间
+  # 桌面只有「URL 主机名 + 转圈」的加载态。只有起窗失败后的重试才清脏会话换代。两阶段判据不变。
+  foreach ($attempt in 1..2) {
+    Write-Output "WIN-OPEN attempt=$attempt"
+    if ($attempt -gt 1) { Reset-PanelEdgeProfile }
+    Start-Process $edge -ArgumentList "--app=$Url/", "--window-size=1320,860", "--window-position=60,40", "--user-data-dir=$env:LOCALAPPDATA\ServerPanelV4Edge", '--no-first-run', '--disable-features=Translate', '--disable-extensions' | Out-Null
+    # R-87a：成功判据升级为「真实带标题的面板窗出现」，旧口径在「进程起了、窗口还没建出来」
+    # 的中间态就报 ok，重复启动撞上这个状态就可能叠开第二个窗口。分两阶段等待，既不早退也不误杀：
+    # 阶段1（≤5s）只看进程是否被接受——没起或秒退（profile 被占）立即换代重试；
+    # 阶段2（≤30s）等真实带标题窗口——栈健康就不打断，冷启动慢不再被 12s 上限误杀而自我拆台。
+    $accepted = $false; $w1 = 0
+    while ($w1 -lt 5000) {
+      Start-Sleep -Milliseconds 400
+      if (@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -like "*--app=$Url*") -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') }).Count -gt 0) { $accepted = $true; break }
+      $w1 += 400
+    }
+    if (-not $accepted) { Write-Output ('WIN-OPEN fail-fast attempt=' + $attempt); try { Add-Content -LiteralPath (Join-Path $Root 'log\_winlog.txt') -Value ((Get-Date).ToString('HH:mm:ss')) -Encoding utf8 } catch {}; continue }
+    $w2 = 0
+    while ($w2 -lt 30000) {
+      Start-Sleep -Milliseconds 500
+      if (Find-PanelEdgeWindowFast) { Write-Output 'WIN-OPEN ok'; return }
+      $w2 += 500
+    }
+    Write-Output ('WIN-OPEN fail-window attempt=' + $attempt)
+    try { Add-Content -LiteralPath (Join-Path $Root 'log\_winlog.txt') -Value ((Get-Date).ToString('HH:mm:ss')) -Encoding utf8 } catch {}
+  }
+  Start-Process $Url | Out-Null
+}
 
 # R-84：双启动防护改走内核互斥体，不依赖「端口占用」。实测 Windows http.sys 允许两个 HttpListener
 # 同时注册同一前址（新实例照样 PANEL-READY），旧路径“绑定失败→探测已有实例”在本机永不触发，
@@ -113,9 +195,9 @@ function Find-PanelEdgeWindowFast {
 try {
   $panelMutex = [System.Threading.Mutex]::new($false, "Global\ServerPanelV4-$Port")
   if (-not $panelMutex.WaitOne(0)) {        # 返回 false = 已有活实例持锁 => 本实例就是重复启动
-    # R-86：连续两次启动（如双击两下 BAT、或两秒内的重复拉起）时，旧逻辑会给现有面板再开第二个 --app
-    # 窗口；但专用 profile 正被第一个实例的 Edge 持有，第二次 --app 会退化成一个空白 Edge 窗——
-    # 用户看到的就是「弹出一个服务器管家 + 一个空白的 Edge」。改为只把现有面板窗置前，静默不叠窗。
+    # R-86：连续两次启动（如双击两下 BAT、或两秒内的重复拉起）时，若已有面板窗则只把它置前、
+    # 静默不叠窗；若窗口不在（用户关掉了 --app 窗但采集仍在跑，或上代留下空白僵尸栈），
+    # 则清僵尸栈后由本实例开一扇新窗再退出——R-89b：保证每次双击后桌面永远恰好有一扇可见面板窗。
     $existingWin = Find-PanelEdgeWindow
     if (-not $existingWin) {
       # R-87f：所有权 CIM 单进程查询在高负载下会超时失败，导致明明有面板窗也报 DUP-FOCUS:NO。
@@ -136,14 +218,12 @@ try {
       try { [Microsoft.VisualBasic.Interaction]::AppActivate([int]$existingWin.Id); $focused = $true } catch {}
     }
     else {
-      # R-87c：找不到有效面板窗却有专用 profile 栈 —— 多半是上一代面板死了但 Edge 窗还挂在
-      # 桌面上的僵尸（标题窗/空白窗都有可能）。只清「启动超过 60s」的老栈：本代刚起的冷启动
-      # 第一实例还在建窗（<60s）不碰，真僵尸早已超过该阈值，避免双击后桌面留一个点不开的幽灵窗。
+      # R-89b：既找不到可聚焦的面板窗、又确认面板活着 —— 补开一扇新 --app 窗再退出。
+      # 有专用 profile 栈却没标题窗 = 空白僵尸（上代强杀/关窗残留），先整体清掉再开，
+      # 否则新 --app 会挂在脏会话上再起一栈却只剩空白窗。没有栈则是用户干净关掉了窗口，直接开。
       try {
-        $cutoff = (Get-Date).AddSeconds(-60)
-        $oldStack = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-          $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') -and $_.CreationDate -and $_.CreationDate -lt $cutoff })
-        if ($oldStack.Count -gt 0) { Reset-PanelEdgeProfile }
+        if (@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') }).Count -gt 0) { Reset-PanelEdgeProfile }
+        Open-PanelWindow ("http://127.0.0.1:$Port")
       } catch {}
     }
     Write-Output ("PANEL-ALREADY-RUNNING http://127.0.0.1:$Port DUP-FOCUS:" + $(if ($focused) { 'YES' } else { 'NO' }) + " (另一实例仍在运行" + $(if ($focused) { '，已置前台' } else { '，本实例静默退出' }) + ")")
@@ -167,6 +247,16 @@ function Start-Agents {
     # 上一进程实际运行 <10s 即退出视为快速失败（config/host/collector 缺失），累加退避；跑久了才断则重置。
     # 用 ExitTime 算真实运行时长，不能用「距上次启动」（那会把退避等待时间算进去，导致 failCount 被误重置）
     if ($am.lastStart -and $alive -and $alive.HasExited) { $runSec = 999; try { $runSec = ($alive.ExitTime - $am.lastStart).TotalSeconds } catch {}; if ($runSec -lt 10) { $am.failCount++ } else { $am.failCount = 0 } }
+    # R-88：跨代去重。上代 hub 被杀/被回收后，其 agent 可能变孤儿继续写 state（实测：本会话
+    # 一个孤儿 agent 在 hub 死后又采集了几分钟）。本代再拉起时若不清掉它们，会出现两个 agent
+    # 同写 latest-/meta-/rollup-<id>.json（样本翻倍、SSH 会话翻倍、告警状态互相覆盖）。
+    # 只清命令行同为 agent.ps1 且 -HostId 相同的其它 pwsh；本代已跟踪的活进程（PID 相同）不动。
+    try {
+      $myPid = if ($alive) { [int]$alive.Id } else { 0 }
+      Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -eq 'pwsh.exe' -and ('' + $_.CommandLine -match 'agent\.ps1') -and ('' + $_.CommandLine -match ('-HostId\s+' + [regex]::Escape($h.id) + '([\s"]|$)')) -and [int]$_.ProcessId -ne [int]$myPid
+      } | ForEach-Object { try { & taskkill.exe /T /F /PID $_.ProcessId 2>&1 | Out-Null } catch {} }
+    } catch {}
     $psi = [Diagnostics.ProcessStartInfo]::new()
     $pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue)
     $psi.FileName = if ($pwsh) { $pwsh.Source } else { 'powershell.exe' }
@@ -287,61 +377,6 @@ if ($TestOnce) {
     if ($lat) { "   gpu.util=$($lat.gpu.util) mem=$($lat.gpu.memUsedMiB)/$($lat.gpu.memTotalMiB) procs=$($lat.procCount) cpu%=$($lat.derived.cpuPct) errors=[$($lat.errors -join ',')]" }
   }
   Stop-Agents; exit 0
-}
-
-# ---------- 打开独立窗口（Edge 应用模式） ----------
-# R-86b：清掉专用 profile 的全部残留进程与目录数据。该目录是本工具的可弃隔离 profile
-# （%LOCALAPPDATA%\ServerPanelV4Edge，页面上没有任何需要跨次保留的状态），上代强杀留下的
-# 脏会话数据正是「--app 起一栈却只剩空白窗」的根因——每代开窗前整体清空，从根上消灭该形态。
-# 只在本 profile 无存活进程后删除，不会波及用户日常浏览器（那是另一个 user-data-dir）。
-function Reset-PanelEdgeProfile {
-  try {
-    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') } | ForEach-Object { try { & taskkill.exe /T /F /PID $_.ProcessId 2>&1 | Out-Null } catch {} }
-    Start-Sleep -Milliseconds 500
-    if (-not ((Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') }))) {
-      $prof = "$env:LOCALAPPDATA\ServerPanelV4Edge"
-      if (Test-Path -LiteralPath $prof) { Remove-Item -LiteralPath $prof -Recurse -Force -ErrorAction SilentlyContinue }
-    }
-  } catch {}
-}
-# R-86a：若上一代会话残留的面板窗口还在桌面（或重复实例撞见），先聚焦它，不叠开新窗
-# （旧逻辑会为重复启动再开第二个同样窗口，且专用 profile 被占时退化成「空白 Edge 窗」）。
-function Open-PanelWindow([string]$Url) {
-  $hits = Find-PanelEdgeWindow
-  if ($hits) { try { [Microsoft.VisualBasic.Interaction]::AppActivate([int]$hits.Id); return } catch {} }
-  $edge = @("$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
-  if (-not $edge) { Start-Process $Url | Out-Null; return }
-  # R-86c：每代都从「干净 profile」起窗（Reset-PanelEdgeProfile 先清残留再开），从根上消灭脏会话
-  # 建不出初始窗口的空白形态；再用「--app 是否被接受」（进程命令行出现 --app=URL + 专用 profile）验证；
-  # 两次都失败则兑底用默认浏览器打开——保证用户双击后每次都看得见面板。
-  # R-87d：一律禁用扩展——--app 面板页不需要任何扩展，且专用 profile 会被 Edge 预装组件复制进
-  # 一整盒扩展（如 Zotero/Scholarscope/Forest 等），个别扩展会在启动瞬间抢占新标签/改写窗口标题，
-  # 是「起了栈却迟迟建不出带标题的面板窗」的候选干扰源之一。关掉它们，窗口状态与标题才可预期。
-  foreach ($attempt in 1..2) {
-    Write-Output "WIN-OPEN attempt=$attempt"
-    Reset-PanelEdgeProfile
-    Start-Process $edge -ArgumentList "--app=$Url/", "--window-size=1320,860", "--window-position=60,40", "--user-data-dir=$env:LOCALAPPDATA\ServerPanelV4Edge", '--no-first-run', '--disable-features=Translate', '--disable-extensions' | Out-Null
-    # R-87a：成功判据升级为「真实带标题的面板窗出现」，旧口径在「进程起了、窗口还没建出来」
-    # 的中间态就报 ok，重复启动撞上这个状态就可能叠开第二个窗口。分两阶段等待，既不早退也不误杀：
-    # 阶段1（≤5s）只看进程是否被接受——没起或秒退（profile 被占）立即换代重试；
-    # 阶段2（≤30s）等真实带标题窗口——栈健康就不打断，冷启动慢不再被 12s 上限误杀而自我拆台。
-    $accepted = $false; $w1 = 0
-    while ($w1 -lt 5000) {
-      Start-Sleep -Milliseconds 400
-      if (@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'msedge.exe' -and ('' + $_.CommandLine -like "*--app=$Url*") -and ('' + $_.CommandLine -match 'ServerPanelV4Edge') }).Count -gt 0) { $accepted = $true; break }
-      $w1 += 400
-    }
-    if (-not $accepted) { Write-Output ('WIN-OPEN fail-fast attempt=' + $attempt); try { Add-Content -LiteralPath (Join-Path $Root 'log\_winlog.txt') -Value ((Get-Date).ToString('HH:mm:ss')) -Encoding utf8 } catch {}; continue }
-    $w2 = 0
-    while ($w2 -lt 30000) {
-      Start-Sleep -Milliseconds 500
-      if (Find-PanelEdgeWindowFast) { Write-Output 'WIN-OPEN ok'; return }
-      $w2 += 500
-    }
-    Write-Output ('WIN-OPEN fail-window attempt=' + $attempt)
-    try { Add-Content -LiteralPath (Join-Path $Root 'log\_winlog.txt') -Value ((Get-Date).ToString('HH:mm:ss')) -Encoding utf8 } catch {}
-  }
-  Start-Process $Url | Out-Null
 }
 
 # ---------- 监听 ----------
