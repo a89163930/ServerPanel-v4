@@ -66,6 +66,24 @@ $auditLog = Join-Path $Root 'actions.log'
 # P0-4：启动时清一次孤儿 .running（上一代被强杀残留，mtime 超 120s），避免面板永不空闲退出
 Get-ChildItem $actionDir -Filter '*.running' -ErrorAction SilentlyContinue | Where-Object { ((Get-Date) - $_.LastWriteTime).TotalSeconds -gt 120 } | Remove-Item -Force -ErrorAction SilentlyContinue
 
+# R-84：双启动防护改走内核互斥体，不依赖「端口占用」。实测 Windows http.sys 允许两个 HttpListener
+# 同时注册同一前址（新实例照样 PANEL-READY），旧路径“绑定失败→探测已有实例”在本机永不触发，
+# 双实例会双写 hub.json、双起 agent（SSH 会话翻倍）。命名互斥体随进程死亡由内核自动释放，
+# 上代崩溃留下的 abandoned 锁会自动接管，不会误伤下一轮启动。放在 Start-Agents 之前：重复实例根本轮不到起 agent。
+try {
+  $panelMutex = [System.Threading.Mutex]::new($false, "Global\ServerPanelV4-$Port")
+  if (-not $panelMutex.WaitOne(0)) {        # 返回 false = 已有活实例持锁 => 本实例就是重复启动
+    $edge2 = @("$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($edge2) { Start-Process $edge2 -ArgumentList "--app=http://127.0.0.1:$Port/", '--window-size=1320,860', "--user-data-dir=$env:LOCALAPPDATA\ServerPanelV4Edge", '--no-first-run' | Out-Null }
+    elseif (-not $NoBrowser) { Start-Process "http://127.0.0.1:$Port" | Out-Null }
+    Write-Output ("PANEL-ALREADY-RUNNING http://127.0.0.1:$Port (另一实例仍在运行，本实例退出)")
+    exit 0
+  }
+  $script:mutexHeld = $true
+} catch [System.Threading.AbandonedMutexException] {
+  $script:mutexHeld = $true   # 上代实例崩溃遗留的锁：内核已释放，直接接管
+}
+
 # ---------- 代理进程管理 ----------
 $script:agents = @{}
 $script:agentMeta = @{}   # P1-4：每主机 lastStart/failCount/nextTry，失败退避防进程风暴
@@ -301,10 +319,19 @@ function Read-LogTail($path, [int]$maxLines, [int]$tailBytes = 65536) {
 # ---------- 主循环 ----------
 $script:lastActive = Get-Date
 $script:busyAgents = $false
+$script:lastTickAt = Get-Date     # R-83：每拍墙钟，用于识别「睡眠/挂起恢复」
+$script:exitWhy = ''             # R-83：退出原因留痕（idle / 未设）
 $script:lastCleanup = Get-Date
 Write-AtomicText (Join-Path $Root 'state\hub.json') (@{ ts = (Get-Date).ToString('s'); pid = $PID; port = $Port } | ConvertTo-Json -Compress)
 
 while ($listener.IsListening) {
+  $now = Get-Date
+  if (($now - $script:lastTickAt).TotalSeconds -gt 10) {   # 拍长只有 ~0.7s，漂过 10s 只可能是睡眠/挂起/长卡顿
+    # R-83：不清零的话，恢复瞬间墙钟早已 ≫ idleLimit，整机被「空闲」当场收走——用户看到的就是跑着跑着断线
+    try { Add-Content -LiteralPath (Join-Path $Root 'log\panel-run.log') -Value ((($now - $script:lastTickAt).TotalSeconds).ToString('N0') + ' RESUME-GAP ' + $now.ToString('s') + '（睡眠/挂起恢复，空闲计时重置）') -Encoding utf8 } catch {}
+    $script:lastActive = $now
+  }
+  $script:lastTickAt = $now
   $ar = $listener.BeginGetContext($null, $null)
   $stopping = $false
   while (-not $ar.AsyncWaitHandle.WaitOne(700)) {
@@ -321,7 +348,7 @@ while ($listener.IsListening) {
         $running = @(Get-ChildItem $actionDir -Filter '*.running' -ErrorAction SilentlyContinue | Where-Object {
           if (((Get-Date) - $_.LastWriteTime).TotalSeconds -gt 120) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue; $false } else { $true }
         })
-        if ($running.Count -eq 0) { $stopping = $true; break }
+        if ($running.Count -eq 0) { $script:exitWhy = 'idle'; $stopping = $true; break }
       }
     } catch {
       # 防护：巡检异常不允许静默杀死整个面板——留痕后继续（此前出现过一次无痕迹退出，无法定位）
@@ -629,6 +656,8 @@ while ($listener.IsListening) {
   }
 }
 
+# R-83：退出必须留痕——此前只打裸 PANEL-EXIT，事后无法回答「为什么没了、最后一次被访问是什么时候」
+try { Add-Content -LiteralPath (Join-Path $Root 'log\panel-run.log') -Value ((Get-Date).ToString('s') + ' PANEL-EXIT why=' + $script:exitWhy + ' sinceActive=' + [int]((Get-Date) - $script:lastActive).TotalSeconds + 's pid=' + $PID) -Encoding utf8 } catch {}
 Stop-Agents
 try { $listener.Stop() } catch {}
 Write-Output 'PANEL-EXIT'

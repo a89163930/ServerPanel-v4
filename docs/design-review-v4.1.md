@@ -44,7 +44,7 @@
 | 通读 `action.ps1` + `collector.sh` | kill 白名单校验链、远端采集 schema sp1 |
 | 运行态抓取 | `state/latest-gpu3090.json` 完整字段树、meta、alerts、actions.log |
 | 实机截图 | 总览、性能曲线、进程、服务与开关 4 页存档 + 本次补拍网络、告警与审计 2 页 |
-| 远端链路复现 | 在远端主机上逐段定位中文路径变问号的环节 |
+| 远端链路复现 | 在 192.168.3.3 上逐段定位中文路径变问号的环节 |
 
 ### 2.2 证据文件
 
@@ -399,7 +399,7 @@ derived  cpuPct rxRateBps txRateBps memPct swapPct gpuMemPct agentTs hostId
 
 #### DR-25 修复中文路径变问号 P0
 
-根因已定位：`collector.sh` 第 11 行 `export LC_ALL=C` 使 procps 的 `ps` 在 C locale 下把每个非 ASCII 字节替换成 `?`，4 个汉字变 12 个问号。jq 与 PowerShell 环节均无问题，已在远端主机上逐段复现验证。
+根因已定位：`collector.sh` 第 11 行 `export LC_ALL=C` 使 procps 的 `ps` 在 C locale 下把每个非 ASCII 字节替换成 `?`，4 个汉字变 12 个问号。jq 与 PowerShell 环节均无问题，已在 192.168.3.3 上逐段复现验证。
 
 修复：
 
@@ -1045,3 +1045,42 @@ DR-79 落地：
 ### 21.3 教训
 
 多核机器上「两个 100%」完全正常；排查这类疑问时应先看 `nproc`、`load average` 与各进程值之和，而不是先怀疑面板。
+
+### 22.5 连带发现并修复：双启动防护被 http.sys 双队列绕过（R-84）
+
+排查噪音时做了个实验：主实例存活期间再拉一个隐藏实例。新实例**照样绑定成功、照常 `PANEL-READY`**，结果双写 `hub.json`、双起 agent（对远端开两条 SSH 流）。根因：Windows http.sys 允许多个 HttpListener 同时注册同一前址，旧逻辑「`listener.Start()` 失败 → 探测 `/api/boot` 判已有实例」在本机永不触发。
+
+修复：改用命名内核互斥体 `Global\ServerPanelV4-<port>`（置于 `Start-Agents` 之前）。重复实例 `WaitOne(0)` 立即失败即退出（顺带为现有实例开窗）；上代崩溃遗留的 abandoned 锁由内核自动接管，不误伤重启。
+
+## 22. R-83：「长时间运行就断线」根因与加固（2026-11-22，用户反馈「为什么长时间运行会断线」）
+
+### 22.1 结论先行
+
+**不是 SSH 长连接守不住，是整条链路的存活被「有没有浏览器在轮询 HTTP」这一个信号单点决定。**
+
+SSH 会话层本身有完整自愈：客户端 `ServerAliveInterval=15 × CountMax=3`（≤45s 感知死链）→ agent 指数退避重连（1s→15s 封顶）→ 面板 700ms 巡检兜底拉起。网络抖动只会产生短暂红字「采集已中断」，不会演变成永久离线。
+
+真正致命的是空闲退出链（`config.idleExitSec=90`，BAT 不传 `-IdleSec`）：
+
+1. `panel.ps1` 的 `$script:lastActive` **只在收到 HTTP 请求时刷新**（主循环里 `/api/*` 处理完之后赋值）；
+2. Edge 应用窗口开着时每几秒轮询，关窗/最小化节流/机器睡眠后轮询停掉；
+3. 90 秒无任何请求 → 主循环空闲分支 `break` → 收尾调 `Stop-Agents` 把每个 agent 的进程树 `taskkill /T /F` 一并带走 → `PANEL-EXIT`。
+
+于是 hub + 全部 agent + SSH 流整体消失，且 agent 没有机会写自己的 `exitReason='idle_heartbeat_lost'`（被父进程强杀）。用户看到的就是「跑着跑着断线」，重开又要双击 BAT。
+
+### 22.2 证据（2026-11-22 实查）
+
+- `log/panel-run.log`：本轮面板 11:41:03 启动、12:09:59 `PANEL-EXIT`，存活 28 分 56 秒——恰在用户停止交互约 90 秒后退出，全程无终止错误转储，干净退出而非崩溃。
+- `state/hub.json` 停在 ts=12:09:59；`meta-gpu3090.json` 最后样本 12:09:58（ageSec=1）、`exitReason` 为空、`restarts=0`——均指向被强杀而非会话中断。
+- `history/` 目录仅有 11-13/16/18/19/20/22 六个文件：**从未成功跨夜运行过一次**，每天的会话都是「用一段、停一段」。
+- `state/alerts-gpu3090.json` 中 `agent` 键当前无任何告警记录——排除「频繁 SSH 掉线」作为长期症状。
+
+### 22.3 修复（三处，工程级、不改空闲语义）
+
+1. **挂起/大间隔宽限（R-83）**：主循环拍长 ~0.7s，任一拍发现墙钟比上一拍漂过 10s（睡眠/挂起/长卡顿的恢复信号），重置 `$script:lastActive` 并留痕。此前 Windows 从睡眠恢复时墙钟跳变 ≫90s，恢复瞬间就被空闲判定当场收走——这是「跑很久突然断」的另一常见形态。
+2. **退出留痕**：`PANEL-EXIT` 前往 `log/panel-run.log` 追加一行 `时间 PANEL-EXIT why=<idle|空> sinceActive=<Ns> pid=<pid>`。此前只打裸 `PANEL-EXIT`，事后无法回答「为什么没了」。
+3. **BAT 支持常驻透传**：系统设 `SP_IDLE=-1` 再双击，启动器把 `-IdleSec %SP_IDLE%` 传给面板（`if defined SP_IDLE`），无人值守 7×24 不用命令行。纯 ASCII/CRLF 契约不变，launcher 门禁覆盖。
+
+### 22.4 教训
+
+单活性信号设计（轮询即心跳）在「面向人的本地工具」里省事，但只要存在无人值守诉求，它就是整条链路的最短板：关窗、睡眠、最小化节流每一个都算「断开」。要么明确文档化「无人值守必须 `-IdleSec -1`」，要么把空闲语义改成与采集状态双因子（采集活着就不退）——后者是产品决策，等用户定夺。
