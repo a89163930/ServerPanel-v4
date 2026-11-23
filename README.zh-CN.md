@@ -117,6 +117,6 @@ pwsh -File build/gate.ps1 -Only hosts   # 单套调试
 
 ## 致谢
 
-本项目开发过程中使用了基元律动的 **neohorse1.5** 模型，感谢模型支持。
+本项目开发过程中使用了基元律动（[TokenRhythm](https://tokenrhythm.studio/)）的 **neohorse1.5** 模型，感谢模型支持。
 
 本项目由单人维护。Bug 反馈与安全问题上报方式见 SECURITY.md。

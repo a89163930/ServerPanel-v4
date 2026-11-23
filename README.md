@@ -141,7 +141,7 @@ loopback truth tables, chart pixel checks, syntax checking and audit hygiene.
 
 ## Acknowledgments
 
-Built with the **neohorse1.5** model from 基元律动 — many thanks for the model support.
+Built with the **neohorse1.5** model from [基元律动 (TokenRhythm)](https://tokenrhythm.studio/) — many thanks for the model support.
 
 This project is developed and maintained by a single maintainer. Bug reports and
 security disclosures: see SECURITY.md.
