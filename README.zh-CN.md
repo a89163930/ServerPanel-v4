@@ -115,4 +115,8 @@ pwsh -File build/gate.ps1 -Only hosts   # 单套调试
 - 浏览器定时器节流（窗口最小化 / 标签页后台）只影响可见的「已同步」时间显示，
   不影响采集——以 `state/meta-<id>.json` 的 `ageSec` 为准。
 
+## 致谢
+
+本项目开发过程中使用了基元律动的 **neohorse1.5** 模型，感谢模型支持。
+
 本项目由单人维护。Bug 反馈与安全问题上报方式见 SECURITY.md。

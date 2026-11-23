@@ -139,5 +139,9 @@ loopback truth tables, chart pixel checks, syntax checking and audit hygiene.
   visible "synced" timestamp, not collection — judge freshness by `ageSec` in
   `state/meta-<id>.json`.
 
+## Acknowledgments
+
+Built with the **neohorse1.5** model from 基元律动 — many thanks for the model support.
+
 This project is developed and maintained by a single maintainer. Bug reports and
 security disclosures: see SECURITY.md.
